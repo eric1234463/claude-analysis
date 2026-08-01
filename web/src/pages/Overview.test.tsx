@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import fixture from '../api/__fixtures__/aggregate-stats.json';
 import type { AggregateStats, UsageCounts } from '../api/types';
-import { Overview } from './Overview';
+import { Overview, dailyMainSidechainData, dailyTokenTypeData } from './Overview';
 
 const stats = fixture as AggregateStats;
 const series: Array<{ day: string; counts: UsageCounts }> = [
@@ -26,6 +26,26 @@ describe('Overview', () => {
     const { container } = render(<Overview stats={stats} series={series} />);
     expect(seriesIn(container, 'chart-daily-tokens')).toBe(2);
     expect(marksIn(container, 'chart-daily-tokens')).toBe(4);
+  });
+
+  it('derives main/sidechain totals verbatim from the series', () => {
+    expect(dailyMainSidechainData(series)).toStrictEqual([
+      { day: '2026-07-09', main: 145, sidechain: 27275 },
+      { day: '2026-07-10', main: 18, sidechain: 0 },
+    ]);
+  });
+
+  it('derives per-type token data verbatim from the series, including zeros', () => {
+    expect(dailyTokenTypeData(series)).toStrictEqual([
+      { day: '2026-07-09', input: 16, output: 183, cacheRead: 21147, cacheCreation: 6074 },
+      { day: '2026-07-10', input: 7, output: 11, cacheRead: 0, cacheCreation: 0 },
+    ]);
+  });
+
+  it('stacks the four token types, one segment per type per day', () => {
+    const { container } = render(<Overview stats={stats} series={series} />);
+    expect(seriesIn(container, 'chart-daily-token-types')).toBe(4);
+    expect(marksIn(container, 'chart-daily-token-types')).toBe(8);
   });
 
   it('labels both series so a reader can tell main from subagent', () => {
