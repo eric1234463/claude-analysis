@@ -59,7 +59,7 @@ async function walk(dir: string, out: string[]): Promise<void> {
   }
 }
 
-/** Recursively discovers transcripts under `root`. Sorted by `path` ascending. */
+/** Recursively discovers transcripts under `root`. Order follows the directory walk. */
 export async function scanTranscripts(root: string): Promise<TranscriptFile[]> {
   const candidates: string[] = [];
   await walk(root, candidates);

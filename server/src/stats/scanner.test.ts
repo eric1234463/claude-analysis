@@ -27,7 +27,7 @@ describe('classifyTranscriptPath', () => {
 });
 
 describe('scanTranscripts over the committed fixtures', () => {
-  it('finds exactly the three transcripts, sorted by path', async () => {
+  it('finds exactly the three transcripts, in directory-walk order', async () => {
     const files = await scanTranscripts(FIXTURES);
     expect(files.map((f) => path.relative(FIXTURES, f.path))).toStrictEqual([
       path.join('-fixture-project', `${SESSION}`, 'subagents', 'agent-afixture0000000001.jsonl'),
@@ -75,5 +75,31 @@ describe('degradation', () => {
   it('resolves to an empty array for a root that does not exist', async () => {
     await expect(scanTranscripts(path.join(tmpdir(), 'definitely-not-here-9f3a')))
       .resolves.toStrictEqual([]);
+  });
+});
+
+describe('walk filters on classifyTranscriptPath, not just the .jsonl extension', () => {
+  it('returns exactly the one valid main transcript amid non-conforming .jsonl files', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'scan-'));
+    const sessionId = '33333333-3333-3333-3333-333333333333';
+
+    // .jsonl in a non-transcript location, as really exists under memory/
+    await mkdir(path.join(root, '-p', 'memory'), { recursive: true });
+    await writeFile(path.join(root, '-p', 'memory', 'notes.jsonl'), '{}\n');
+
+    // inside a real subagents/ dir, but not matching agent-<agentId>.jsonl
+    await mkdir(path.join(root, '-p', sessionId, 'subagents'), { recursive: true });
+    await writeFile(path.join(root, '-p', sessionId, 'subagents', 'other.jsonl'), '{}\n');
+
+    // another real-world directory that must be walked past
+    await mkdir(path.join(root, '-p', sessionId, 'tool-results'), { recursive: true });
+    await writeFile(path.join(root, '-p', sessionId, 'tool-results', 'x.jsonl'), '{}\n');
+
+    // the one genuinely valid main transcript
+    await writeFile(path.join(root, '-p', `${sessionId}.jsonl`), '{}\n');
+
+    const files = await scanTranscripts(root);
+    expect(files).toHaveLength(1);
+    expect(files[0]).toMatchObject({ project: '-p', kind: 'main' });
   });
 });
