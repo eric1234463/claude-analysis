@@ -4,6 +4,8 @@ import type { AggregateStats, UsageCounts } from '../api/types';
 export interface PageProps {
   stats: AggregateStats;
   series: Array<{ day: string; counts: UsageCounts }>;
+  width?: number;
+  height?: number;
 }
 
 function formatPercent(numerator: number, denominator: number): string {
