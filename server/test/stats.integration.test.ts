@@ -167,6 +167,28 @@ describe('pipeline behaviour', () => {
     expect(out.scannedFiles).toBe(3);
     expect(out.totals.tokens.total).toBeLessThan(27438);
   });
+
+  it('retries a transiently unreadable file on the next run instead of caching the failure', async () => {
+    const { cache, size } = memoryCache();
+    const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+    // Same chaining as above: let scanTranscripts' own meta.json lookup through unmodified,
+    // then fail exactly the next read (the sidechain's transcript content) exactly once.
+    vi.mocked(fsp.readFile)
+      .mockImplementationOnce(actual.readFile as typeof fsp.readFile)
+      .mockRejectedValueOnce(new Error('EACCES'));
+
+    const pipeline = new TranscriptStatsPipeline(config(FIXTURES), cache, () => AT);
+
+    const first = await pipeline.run();
+    expect(first.totals.tokens.total).toBeLessThan(27438);
+    // the two files that read cleanly are cached; the one that failed must not be
+    expect(size()).toBe(2);
+
+    // no further mocked rejections queued: the retry hits the real, unchanged file
+    const second = await pipeline.run();
+    expect(second.totals.tokens.total).toBe(27438);
+    expect(size()).toBe(3);
+  });
 });
 
 describe('cache persistence across separate pipeline instances', () => {

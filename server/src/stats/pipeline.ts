@@ -28,13 +28,21 @@ export class TranscriptStatsPipeline implements StatsPipeline {
         parsedFiles.push(cached);
       } else {
         let parsed: ParsedFile;
+        let readSucceeded = true;
         try {
           const raw = await readFile(file.path, 'utf8');
           parsed = parseTranscript(file, raw.split('\n'), this.config.timeZone);
         } catch {
           parsed = { events: [], malformedLines: 0, ignoredLines: 0 };
+          readSucceeded = false;
         }
-        this.cache.set(key, parsed);
+        // A transient read/parse failure must not be cached: caching it would make the
+        // degradation permanent (keyed on unchanged mtime/size), silently dropping the file
+        // from every future aggregate until it happens to change on disk. Leave the cache
+        // untouched so the next run retries.
+        if (readSucceeded) {
+          this.cache.set(key, parsed);
+        }
         parsedFiles.push(parsed);
       }
 
