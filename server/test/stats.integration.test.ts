@@ -113,6 +113,13 @@ describe('the wired stats module over the fixture transcripts', () => {
     expect(res.body.ignoredLines).toBe(5);
     await app.close();
   });
+
+  it('serves POST /api/stats/refresh against the real composition with the declared keys', async () => {
+    const app = await appFor(FIXTURES);
+    const res = await request(app.getHttpServer()).post('/api/stats/refresh').expect(200);
+    expect(Object.keys(res.body).sort()).toStrictEqual([...AGGREGATE_STATS_KEYS]);
+    await app.close();
+  });
 });
 
 describe('pipeline behaviour', () => {
@@ -125,6 +132,16 @@ describe('pipeline behaviour', () => {
     expect(second).toStrictEqual(first);
   });
 
+  it('re-parses when the configured zone changes, so cached day keys never go stale', async () => {
+    const { cache } = memoryCache();
+    const hk = await new TranscriptStatsPipeline(config(FIXTURES), cache, () => AT).run();
+    expect(Object.keys(hk.days)).toStrictEqual(['2026-07-09', '2026-07-10']);
+    const utc = await new TranscriptStatsPipeline(
+      { ...config(FIXTURES), timeZone: 'UTC' }, cache, () => AT,
+    ).run();
+    expect(Object.keys(utc.days)).toStrictEqual(['2026-07-08', '2026-07-09', '2026-07-10']);
+  });
+
   it('resolves with a valid empty aggregate for a transcripts root that does not exist', async () => {
     const { cache } = memoryCache();
     const pipeline = new TranscriptStatsPipeline(
@@ -135,6 +152,20 @@ describe('pipeline behaviour', () => {
     expect(out.scannedFiles).toBe(0);
     expect(out.days).toStrictEqual({});
     expect(out.totals.tokens.total).toBe(0);
+  });
+
+  it('degrades past an unreadable transcript instead of rejecting', async () => {
+    const { cache } = memoryCache();
+    const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+    // The very next readFile call belongs to scanTranscripts' own agent-*.meta.json lookup
+    // (already caught internally there); let it through unmodified, then fail the call right
+    // after it, which is the pipeline's own transcript content read.
+    vi.mocked(fsp.readFile)
+      .mockImplementationOnce(actual.readFile as typeof fsp.readFile)
+      .mockRejectedValueOnce(new Error('EACCES'));
+    const out = await new TranscriptStatsPipeline(config(FIXTURES), cache, () => AT).run();
+    expect(out.scannedFiles).toBe(3);
+    expect(out.totals.tokens.total).toBeLessThan(27438);
   });
 });
 
