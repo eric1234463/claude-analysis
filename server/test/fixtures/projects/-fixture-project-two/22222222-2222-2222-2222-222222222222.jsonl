@@ -1,0 +1,2 @@
+{"type":"last-prompt","sessionId":"22222222-2222-2222-2222-222222222222","prompt":"other project"}
+{"type":"assistant","uuid":"u-t1","sessionId":"22222222-2222-2222-2222-222222222222","requestId":"req_two_A","timestamp":"2026-07-10T04:00:00Z","isSidechain":false,"message":{"role":"assistant","model":"claude-sonnet-5","content":[{"type":"text","text":"hi"}],"usage":{"input_tokens":7,"output_tokens":11,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
