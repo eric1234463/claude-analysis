@@ -152,4 +152,42 @@ describe('determinism', () => {
     expect(s.totals.tokens)
       .toStrictEqual({ input: 0, output: 0, cacheRead: 0, cacheCreation: 0, total: 0 });
   });
+
+  it('sorts agents, skills, and every nested map, even with an adversarially-ordered fixture', () => {
+    // Second project '-z' in the same day as '-a' below, inserted (via file order) before it.
+    const fileZ = file([
+      { kind: 'token', day: '2026-07-09', project: '-z', model: 'zzz-model', dedupeKey: 'dz1',
+        usage: usage(1, 1), isSidechain: false },
+      { kind: 'tool-call', day: '2026-07-09', project: '-z', tool: 'Zulu', isSidechain: false },
+    ]);
+
+    // Baseline project '-a': establishes the 'general-purpose' agentType and the
+    // 'brainstorming' skill, both of which the third file below will precede alphabetically.
+    const fileA = file([
+      { kind: 'token', day: '2026-07-09', project: '-a', model: 'aaa-model', dedupeKey: 'da1',
+        usage: usage(1, 1), isSidechain: false },
+      { kind: 'tool-call', day: '2026-07-09', project: '-a', tool: 'Bash', isSidechain: false },
+      { kind: 'skill', day: '2026-07-09', project: '-a', name: 'brainstorming',
+        source: 'skill-tool', isSidechain: false },
+      { kind: 'agent-run', day: '2026-07-09', project: '-a', agentType: 'general-purpose' },
+    ]);
+
+    // Third file: its agentType and skill both sort BEFORE fileA's, but are inserted AFTER it.
+    const fileThird = file([
+      { kind: 'agent-run', day: '2026-07-09', project: '-a', agentType: 'aa-agent' },
+      { kind: 'skill', day: '2026-07-09', project: '-a', name: 'apple',
+        source: 'skill-tool', isSidechain: false },
+    ]);
+
+    const out = aggregate([fileZ, fileA, fileThird], AT);
+    const skillSortKey = (s: { source: string; name: string }) => `${s.source}|${s.name}`;
+
+    // Each collection must equal its own sorted copy -- self-checking, no hardcoded order.
+    expect(out.agents).toStrictEqual([...out.agents].sort());
+    expect(out.skills.map(skillSortKey)).toStrictEqual([...out.skills.map(skillSortKey)].sort());
+    expect(Object.keys(out.totals.tools)).toStrictEqual([...Object.keys(out.totals.tools)].sort());
+    expect(Object.keys(out.totals.models)).toStrictEqual([...Object.keys(out.totals.models)].sort());
+    expect(Object.keys(out.days['2026-07-09']))
+      .toStrictEqual([...Object.keys(out.days['2026-07-09'])].sort());
+  });
 });
