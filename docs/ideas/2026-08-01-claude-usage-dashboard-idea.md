@@ -23,9 +23,9 @@ Claude Code records every session as JSONL transcripts under `~/.claude/projects
 
 ## Options
 
-### Recommended: Single Node + React app
+### Recommended: NestJS + React app
 
-One repo: a small Node backend (Express or Fastify) that scans and parses transcripts, plus a Vite + React frontend with Recharts. Per-file aggregates are cached keyed by (path, mtime, size), so the first scan is slow but refreshes are incremental and near-instant. Full UI control, easy to extend with new metrics.
+One repo, two packages: a NestJS backend (Eric's familiar stack — a single module with a controller and a stats service that scans and parses transcripts), plus a Vite + React + TypeScript frontend with Recharts. Vite's dev proxy points `/api` at the NestJS server. Per-file aggregates are cached keyed by (path, mtime, size), so the first scan is slow but refreshes are incremental and near-instant. No database — rolled-up aggregates live in memory plus a JSON cache file.
 
 ### Alternative: Streamlit (Python)
 
