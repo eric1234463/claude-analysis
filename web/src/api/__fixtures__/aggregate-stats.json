@@ -1,0 +1,89 @@
+{
+  "generatedAt": "2026-08-01T00:00:00.000Z",
+  "scannedFiles": 3,
+  "malformedLines": 3,
+  "ignoredLines": 5,
+  "days": {
+    "2026-07-09": {
+      "-fixture-project": {
+        "tokens": { "input": 16, "output": 183, "cacheRead": 21147, "cacheCreation": 6074, "total": 27420 },
+        "mainTokens": { "input": 13, "output": 27, "cacheRead": 100, "cacheCreation": 5, "total": 145 },
+        "sidechainTokens": { "input": 3, "output": 156, "cacheRead": 21047, "cacheCreation": 6069, "total": 27275 },
+        "sessionsStarted": 1,
+        "toolCalls": 4,
+        "toolErrors": 1,
+        "skillInvocations": 2,
+        "agentRuns": 1,
+        "models": {
+          "claude-opus-4-8": { "input": 16, "output": 183, "cacheRead": 21147, "cacheCreation": 6074, "total": 27420 }
+        },
+        "tools": {
+          "Agent": { "calls": 1, "errors": 0 },
+          "Bash": { "calls": 1, "errors": 1 },
+          "Read": { "calls": 1, "errors": 0 },
+          "Skill": { "calls": 1, "errors": 0 }
+        },
+        "skills": { "skill-tool|brainstorming": 1, "slash-command|/context": 1 },
+        "agents": {
+          "general-purpose": {
+            "runs": 1,
+            "tokens": { "input": 3, "output": 156, "cacheRead": 21047, "cacheCreation": 6069, "total": 27275 }
+          }
+        }
+      }
+    },
+    "2026-07-10": {
+      "-fixture-project-two": {
+        "tokens": { "input": 7, "output": 11, "cacheRead": 0, "cacheCreation": 0, "total": 18 },
+        "mainTokens": { "input": 7, "output": 11, "cacheRead": 0, "cacheCreation": 0, "total": 18 },
+        "sidechainTokens": { "input": 0, "output": 0, "cacheRead": 0, "cacheCreation": 0, "total": 0 },
+        "sessionsStarted": 1,
+        "toolCalls": 0,
+        "toolErrors": 0,
+        "skillInvocations": 0,
+        "agentRuns": 0,
+        "models": {
+          "claude-sonnet-5": { "input": 7, "output": 11, "cacheRead": 0, "cacheCreation": 0, "total": 18 }
+        },
+        "tools": {},
+        "skills": {},
+        "agents": {}
+      }
+    }
+  },
+  "projects": ["-fixture-project", "-fixture-project-two"],
+  "models": ["claude-opus-4-8", "claude-sonnet-5"],
+  "tools": ["Agent", "Bash", "Read", "Skill"],
+  "skills": [
+    { "name": "brainstorming", "source": "skill-tool" },
+    { "name": "/context", "source": "slash-command" }
+  ],
+  "agents": ["general-purpose"],
+  "totals": {
+    "tokens": { "input": 23, "output": 194, "cacheRead": 21147, "cacheCreation": 6074, "total": 27438 },
+    "mainTokens": { "input": 20, "output": 38, "cacheRead": 100, "cacheCreation": 5, "total": 163 },
+    "sidechainTokens": { "input": 3, "output": 156, "cacheRead": 21047, "cacheCreation": 6069, "total": 27275 },
+    "sessionsStarted": 2,
+    "toolCalls": 4,
+    "toolErrors": 1,
+    "skillInvocations": 2,
+    "agentRuns": 1,
+    "models": {
+      "claude-opus-4-8": { "input": 16, "output": 183, "cacheRead": 21147, "cacheCreation": 6074, "total": 27420 },
+      "claude-sonnet-5": { "input": 7, "output": 11, "cacheRead": 0, "cacheCreation": 0, "total": 18 }
+    },
+    "tools": {
+      "Agent": { "calls": 1, "errors": 0 },
+      "Bash": { "calls": 1, "errors": 1 },
+      "Read": { "calls": 1, "errors": 0 },
+      "Skill": { "calls": 1, "errors": 0 }
+    },
+    "skills": { "skill-tool|brainstorming": 1, "slash-command|/context": 1 },
+    "agents": {
+      "general-purpose": {
+        "runs": 1,
+        "tokens": { "input": 3, "output": 156, "cacheRead": 21047, "cacheCreation": 6069, "total": 27275 }
+      }
+    }
+  }
+}
