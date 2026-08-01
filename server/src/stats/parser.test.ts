@@ -30,6 +30,10 @@ const linesOf = (p: string) => readFileSync(p, 'utf8').split('\n');
 const parseMain = () => parseTranscript(fileOf(MAIN_PATH, 'main'), linesOf(MAIN_PATH), TZ);
 const parseSide = () => parseTranscript(fileOf(SIDE_PATH, 'sidechain'), linesOf(SIDE_PATH), TZ);
 
+const dayFor = (tz: string) =>
+  tokens(parseTranscript(fileOf(MAIN_PATH, 'main'), linesOf(MAIN_PATH), tz).events)
+    .find((e) => e.dedupeKey === 'req_main_A')?.day;
+
 const tokens = (events: UsageEvent[]) =>
   events.filter((e): e is Extract<UsageEvent, { kind: 'token' }> => e.kind === 'token');
 
@@ -77,6 +81,11 @@ describe('token extraction and dedupe', () => {
     const first = tokens(parseMain().events).find((e) => e.dedupeKey === 'req_main_A');
     expect(first?.day).toBe('2026-07-09');
     expect(parseMain().events.map((e) => e.day)).not.toContain('2026-07-08');
+  });
+
+  it('buckets by the zone passed in, not the machine\'s ambient zone', () => {
+    expect(dayFor('Asia/Hong_Kong')).toBe('2026-07-09');
+    expect(dayFor('America/New_York')).toBe('2026-07-08');
   });
 
   it('strips a bracketed context-window suffix from the model', () => {
