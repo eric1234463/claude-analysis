@@ -15,6 +15,8 @@ export class TranscriptStatsPipeline implements StatsPipeline {
   ) {}
 
   async run(): Promise<AggregateStats> {
+    await this.cache.load();
+
     const files = await scanTranscripts(this.config.transcriptsRoot);
     const parsedFiles: ParsedFile[] = [];
 
@@ -41,6 +43,14 @@ export class TranscriptStatsPipeline implements StatsPipeline {
       }
     }
 
-    return aggregate(parsedFiles, this.now());
+    const result = aggregate(parsedFiles, this.now());
+
+    try {
+      await this.cache.save();
+    } catch {
+      // Persistence is best-effort: a save failure must never fail the request.
+    }
+
+    return result;
   }
 }

@@ -1,16 +1,26 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { readFileSync } from 'node:fs';
+import * as fsp from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import {
   AGGREGATE_STATS_KEYS, APP_CONFIG, STATS_PIPELINE,
   type AggregateStats, type AppConfig, type FileAggregateCache, type ParsedFile,
 } from '../src/stats/contracts';
+import { JsonFileAggregateCache } from '../src/stats/file-cache';
 import { TranscriptStatsPipeline } from '../src/stats/pipeline';
 import { StatsController } from '../src/stats/stats.controller';
 import { StatsService } from '../src/stats/stats.service';
+
+// Wraps the real `readFile` so the cache-persistence test can observe call counts
+// without touching the ESM module namespace (which vi.spyOn cannot redefine).
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return { ...actual, readFile: vi.fn(actual.readFile) };
+});
 
 const AT = '2026-08-01T00:00:00.000Z';
 const FIXTURES = path.resolve(__dirname, 'fixtures/projects');
@@ -125,5 +135,42 @@ describe('pipeline behaviour', () => {
     expect(out.scannedFiles).toBe(0);
     expect(out.days).toStrictEqual({});
     expect(out.totals.tokens.total).toBe(0);
+  });
+});
+
+describe('cache persistence across separate pipeline instances', () => {
+  it('a fresh instance over the same cache file loads without re-parsing and produces an identical aggregate', async () => {
+    const cacheDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'stats-cache-'));
+    const cacheFile = path.join(cacheDir, 'stats-cache.json');
+    try {
+      const cfg = config(FIXTURES);
+      cfg.cacheFile = cacheFile;
+
+      const cacheA = new JsonFileAggregateCache(cacheFile);
+      const pipelineA = new TranscriptStatsPipeline(cfg, cacheA, () => AT);
+      const first = await pipelineA.run();
+
+      // save() must have actually persisted a cache file to disk
+      const onDisk = await fsp.readFile(cacheFile, 'utf8');
+      expect(Object.keys(JSON.parse(onDisk)).length).toBe(3);
+
+      vi.mocked(fsp.readFile).mockClear();
+
+      const cacheB = new JsonFileAggregateCache(cacheFile);
+      const pipelineB = new TranscriptStatsPipeline(cfg, cacheB, () => AT);
+      const second = await pipelineB.run();
+
+      // scanTranscripts legitimately re-reads each sidechain's agent-*.meta.json on every
+      // run (that's classification, not parsing); the cache file itself is also legitimately
+      // re-read (that's load()). Neither counts as re-parsing. What must never happen again
+      // is a read of a transcript .jsonl file under FIXTURES.
+      const transcriptReadCalls = vi.mocked(fsp.readFile).mock.calls.filter(
+        (call) => typeof call[0] === 'string' && call[0].startsWith(FIXTURES) && call[0].endsWith('.jsonl'),
+      );
+      expect(transcriptReadCalls.length).toBe(0);
+      expect(second).toStrictEqual(first);
+    } finally {
+      await fsp.rm(cacheDir, { recursive: true, force: true });
+    }
   });
 });
