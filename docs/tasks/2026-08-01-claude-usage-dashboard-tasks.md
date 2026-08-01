@@ -3942,7 +3942,7 @@ reviewer does not read it as a dead parameter.
 
 ### Task 14: Compose the real pipeline and prove the fixture totals through `GET /api/stats`
 
-**Status:** ⬜ Not Started
+**Status:** ⚠️ In Progress (see Progress notes)
 **Wave:** 2
 **Phase:** Phases 1–2 (the integration assertion)
 **Provides:** C-8's real implementation (`StatsPipeline` via `server/src/stats/pipeline.ts`)
@@ -4193,13 +4193,52 @@ git commit -m "Wire the real scan-parse-aggregate pipeline and lock the fixture 
 - Repo-memory candidates: the composition order (scan → cache-keyed parse → aggregate) and the
   `TZ=UTC` convention for server tests. Promote after the Final Gate
 
-**Progress notes:** _(filled in by executing-task)_
+**Progress notes:** ⚠️ Committed, then a **Critical** defect was found in it post-commit; fix in progress.
+
+**First pass — commit `6cd3fdf`.** Success criteria reported MET (9). Files: `pipeline.ts`, `app.module.ts`,
+`main.ts`, `test/stats.integration.test.ts`. Verified by controller:
+`TZ=UTC npm test --prefix server -- run test/stats.integration.test.ts` → `Tests 8 passed (8)`. The real
+scanner → parser → aggregator → service composition does produce C-12's exact numbers over HTTP, and
+deep-equals the web fixture, so **C-3 and C-13 have not drifted**.
+**Mutation proven by controller (M1, ambient timezone):** my first attempt patched the `fileCacheKey` call on
+line 23 rather than the `parseTranscript` call on line 31 and was a no-op — the third time in this run I made
+that mistake. Re-aimed at line 31, it failed 3 tests with a spurious day key:
+`expected [ '2026-07-08', '2026-07-09', …(1) ] to strictly equal [ '2026-07-09', '2026-07-10' ]`. This is the
+plan's timezone bug caught at the composition level, invisible to every Wave 1 test.
+Integrity checks: committed fixtures byte-identical afterwards despite the agent temporarily `chmod 000`-ing
+one to test read-error degradation, and permissions restored to `644`.
+The agent honestly reported that **M2 was undetectable** by the mandated suite and proved it with a temporary
+two-timezone script instead — the sixth such report in this run.
+
+**Critical defect — the application could not boot.** Found by Task 15 attempting the real-data spot-check,
+then **independently reproduced by the controller** by booting the real `AppModule`:
+`Nest can't resolve dependencies of the StatsService (?) … "STATS_PIPELINE" at index [0] is available in the
+StatsModule module`. Root cause: `app.module.ts` provided `APP_CONFIG`/`STATS_PIPELINE` on `AppModule`, while
+`StatsService` is declared in `StatsModule`, and Nest does not expose a parent module's providers to an
+imported child unless the child imports a module that exports the token. Every endpoint was unreachable in the
+real app.
+
+**Why 118 passing tests missed it — the most important lesson of this run.** This task's own integration test
+builds an ad-hoc `Test.createTestingModule({ controllers, providers })` with `STATS_PIPELINE` supplied by
+hand. That ad-hoc module is itself a **stand-in for `AppModule`**. So the task proved "these classes work when
+wired manually", not "the application boots" — the one composition seam a task dedicated to proving
+composition left unproven. The characteristic failure of this execution model is a stand-in more forgiving
+than the real collaborator, and here the last stand-in in the chain was the application assembly itself.
+Two further defects surfaced with it, both real: `server/package.json` had **no `start` script**, its
+`start:dev` invoked `ts-node` which was **never installed or declared**, and `build` referenced a
+**non-existent `tsconfig.build.json`** — even though Task 1's brief had explicitly told it to drop those
+scripts if they required packages it was not given.
+
+**Fix dispatched to this task's own agent** (it owns `app.module.ts`), authorized to also edit
+`stats.module.ts` and `server/package.json`, and required to (a) fix the wiring, (b) **add a regression test
+that boots the real `AppModule` with no hand-supplied providers**, proven by re-introducing the bug, and
+(c) provide one working start command. Fix status recorded below once reviewed.
 
 ---
 
 ### Task 15: Dev proxy, stats client, and the real-data spot-check
 
-**Status:** ⬜ Not Started
+**Status:** ⚠️ In Progress (see Progress notes)
 **Wave:** 2
 **Phase:** Phase 4 — Wire and verify end to end
 **Same agent as Task 3** — it modifies two files Task 3 created, and reusing that agent avoids paying a
@@ -4366,7 +4405,38 @@ git commit -m "Wire the frontend to the stats API through the Vite dev proxy"
 - Repo-memory candidates: the verified dev workflow (`npm start --prefix server` +
   `npm run dev --prefix web`, `/api` proxied to port 3000). Promote after the Final Gate
 
-**Progress notes:** _(filled in by executing-task)_
+**Progress notes:** ⚠️ Code committed (`c24a623`); the **real-data spot-check is outstanding**.
+
+Success criteria: **PARTIAL**. Files: `web/src/api/client.ts`, `client.test.ts`, `web/vite.config.mts`
+(proxy block only), `web/src/main.tsx`.
+
+**Met and verified by controller:**
+- `npm test --prefix web -- run src/api/client.test.ts` → `Tests 3 passed (3)`; full web suite 56 passed
+- **Mutation proven by controller (M1):** removed the non-2xx guard → `expected [Function] to throw error
+  matching /503/ but got 'Unexpected token \'b\', "boom" is not…'`. My first attempt at this mutation left the
+  file syntactically broken so **no tests ran at all** — which is not a proof, and I redid it cleanly
+- `web/vite.config.mts` diff is exactly one line adding `proxy: { '/api': 'http://localhost:3000' }`
+- **The Wave 0 leftover is resolved:** `main.tsx` now fetches `/api/stats` via `fetchStats()` with loading and
+  error states. `grep -c "fixture\|__fixtures__"` → **0**. A production entrypoint rendering fixture data was
+  the leftover I was most determined not to ship, and it is gone
+
+**Outstanding:** the day-total reconciliation, the tool-count grep, the sub-5s incremental refresh timing, and
+the final read-only diff. Blocked on Task 14's boot fix — the server could not start, so no endpoint could be
+called. `M4` (removing the vite proxy block) is also only observable through the spot-check and remains
+unproven.
+
+**This agent found the run's most serious defect** and handled it correctly: it refused to edit
+`app.module.ts`/`stats.module.ts`/`server/package.json` (none on its file list), found a genuinely read-only
+way to reach the boot error (an out-of-tree scratch compile, since discarded), reported with an accurate
+root-cause diagnosis, and continued with the parts it did own rather than stalling.
+
+**It also corrected the controller's own verification method.** I captured a 523-file manifest of
+`~/.claude/projects` before any real-data run, to check the plan's read-only guarantee. The agent pointed out
+that **this session's own Claude Code transcript is being appended to as the work runs** — so a naive manifest
+diff would flag the harness's own conversation log as a dashboard write. Prep done for the spot-check: past day
+**2026-07-31** scouted (mtime-verified as closed out), and the raw JSONL schema confirmed **directly from raw
+files without reading `parser.ts`/`aggregator.ts`**, so the manual figure will be a genuinely independent
+reimplementation rather than a restatement of the code under test.
 
 ---
 
