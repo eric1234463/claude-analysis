@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import fixture from './api/__fixtures__/aggregate-stats.json';
 import type { AggregateStats, UsageCounts } from './api/types';
 import type { StatsFilter } from './api/filterStats';
+import { filterStats, daySeries } from './api/filterStats';
 import { App, type AppDeps } from './App';
 
 const stats = fixture as AggregateStats;
@@ -80,5 +81,17 @@ describe('App filtering delegates to the injected layer', () => {
     render(<App stats={stats} deps={deps} />);
     expect(screen.getByLabelText('-fixture-project')).toBeTruthy();
     expect(screen.getByLabelText('-fixture-project-two')).toBeTruthy();
+  });
+});
+
+describe('App integration with the real filtering layer', () => {
+  it('renders the full unfiltered data on first render, with no dates entered', () => {
+    const realFilterStats = vi.fn(filterStats);
+    const realDaySeries = vi.fn(daySeries);
+    render(<App stats={stats} deps={{ filterStats: realFilterStats, daySeries: realDaySeries }} />);
+    const filtered = realFilterStats.mock.results[0].value as AggregateStats;
+    const series = realDaySeries.mock.results[0].value as Array<{ day: string; counts: UsageCounts }>;
+    expect(filtered.totals.tokens.total).toBe(27438);
+    expect(series).toHaveLength(2);
   });
 });

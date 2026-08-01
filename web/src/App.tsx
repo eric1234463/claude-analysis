@@ -34,7 +34,11 @@ export function App(props: AppProps) {
   const [to, setTo] = useState('');
   const [projects, setProjects] = useState<string[]>([]);
 
-  const filtered = deps.filterStats(stats, { from, to, projects });
+  const filtered = deps.filterStats(stats, {
+    from: from || undefined,
+    to: to || undefined,
+    projects,
+  });
   const series = deps.daySeries(filtered);
 
   function toggleProject(project: string) {
