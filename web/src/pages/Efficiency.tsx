@@ -18,7 +18,29 @@ function formatInteger(numerator: number, denominator: number): string {
   return `${Math.round(numerator / denominator)}`;
 }
 
-export function Efficiency({ stats, width = 600, height = 300 }: PageProps) {
+function safeRatio(numerator: number, denominator: number): number {
+  if (!denominator) return 0;
+  return (numerator / denominator) * 100;
+}
+
+export function cacheHitTrendData(series: Array<{ day: string; counts: UsageCounts }>) {
+  return series.map(({ day, counts }) => ({
+    day,
+    cacheHitRatio: safeRatio(
+      counts.tokens.cacheRead,
+      counts.tokens.input + counts.tokens.cacheRead + counts.tokens.cacheCreation,
+    ),
+  }));
+}
+
+export function toolErrorTrendData(series: Array<{ day: string; counts: UsageCounts }>) {
+  return series.map(({ day, counts }) => ({
+    day,
+    toolErrorRate: safeRatio(counts.toolErrors, counts.toolCalls),
+  }));
+}
+
+export function Efficiency({ stats, series, width = 600, height = 300 }: PageProps) {
   const { totals } = stats;
 
   const cacheHitRatio = formatPercent(
@@ -45,6 +67,9 @@ export function Efficiency({ stats, width = 600, height = 300 }: PageProps) {
     .map(([project, tokens]) => ({ project, tokens }))
     .sort((a, b) => b.tokens - a.tokens);
 
+  const cacheHitTrend = cacheHitTrendData(series);
+  const toolErrorTrend = toolErrorTrendData(series);
+
   return (
     <section data-testid="page-efficiency">
       <div data-testid="metric-cache-hit-ratio">{cacheHitRatio}</div>
@@ -65,6 +90,22 @@ export function Efficiency({ stats, width = 600, height = 300 }: PageProps) {
           <XAxis type="number" />
           <YAxis type="category" dataKey="project" />
           <Bar dataKey="tokens" fill="#8884d8" />
+        </BarChart>
+      </div>
+      <div data-testid="chart-cache-hit-trend">
+        <p>Cache hit ratio per day</p>
+        <BarChart width={width} height={height} data={cacheHitTrend}>
+          <XAxis dataKey="day" />
+          <YAxis />
+          <Bar dataKey="cacheHitRatio" name="Cache hit %" fill="#55a868" minPointSize={1} />
+        </BarChart>
+      </div>
+      <div data-testid="chart-tool-error-trend">
+        <p>Tool error rate per day</p>
+        <BarChart width={width} height={height} data={toolErrorTrend}>
+          <XAxis dataKey="day" />
+          <YAxis />
+          <Bar dataKey="toolErrorRate" name="Tool error %" fill="#c44e52" minPointSize={1} />
         </BarChart>
       </div>
     </section>
