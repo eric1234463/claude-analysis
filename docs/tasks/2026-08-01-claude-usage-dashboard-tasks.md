@@ -707,7 +707,7 @@ Within each wave no path appears twice. The calls worth naming:
 
 ### Task 1: Root and server scaffold plus all shared backend contract declarations
 
-**Status:** ⬜ Not Started
+**Status:** ✅ Completed
 **Wave:** 0
 **Phase:** — (scaffold + registry transcription; precedes Phase 1)
 **Provides:** C-1, C-2, C-3, C-7 (interface only), C-8 (port + token), C-11 (interface + token)
@@ -931,13 +931,32 @@ git commit -m "Scaffold the server package and declare the shared stats contract
 - Repo-memory candidates: `npm test --prefix server -- run <path>` is the file-scoped test command for this
   repo; Vitest 4 needs no swc plugin for NestJS DI. Promote once Task 8 has exercised real Nest DI
 
-**Progress notes:** _(filled in by executing-task)_
+**Progress notes:** ✅ Completed. Success criteria: MET (all 6). Files: the 9 listed paths, nothing else.
+Verified by controller: `npm test --prefix server -- run src/stats/contracts.test.ts` → `Tests 4 passed (4)`.
+**Mutation M1 proven by controller** (dropped `'agents'` from `AGGREGATE_STATS_KEYS`) → 2 tests failed with
+`expected [ 'days', 'generatedAt', …(8) ] to strictly equal [ 'agents', 'days', …(9) ]`; reverted and
+`contracts.ts` confirmed byte-identical afterwards. C-1/C-2/C-3/C-7/C-8/C-11 conform to registry text.
+No-logic rule holds: `grep` for function/class/const in `contracts.ts` returns only the three intended
+consts (`AGGREGATE_STATS_KEYS`, `STATS_PIPELINE`, `APP_CONFIG`). `.gitignore` verified to cover
+`server/node_modules/` and `web/node_modules/` while **not** matching any fixture path (`git check-ignore`
+on a fixture file returns nothing). Commit: `e59b467`.
+
+**Deviation — M3 is unprovable as written (task-doc defect, not a contract defect).** M3 asks to rename
+`AppConfig.timeZone` to `tz` and expects test 3 to fail compilation. But the test file this task also
+specifies verbatim never imports or references the `AppConfig` *interface* — only the `APP_CONFIG` token
+string — so the rename breaks nothing here. The agent confirmed the mutation leaves `Tests 4 passed (4)`
+**and** a clean `tsc --noEmit`, then correctly reverted it without editing the test (it was told to write
+that file exactly) and reported instead of routing around it. Controller decision: **no amendment** — C-11's
+surface is correct as declared, and the `timeZone` field name *is* mechanically guarded, just not in this
+task: Task 8 owns `loadConfig` and its tests reference `AppConfig.timeZone` directly, with Task 14 asserting
+it end to end. M1 and M2 both proved, and M1 is the mutation that actually matters here. No success criterion
+depended on M3.
 
 ---
 
 ### Task 2: Fixture transcript directory with hand-computed expected totals
 
-**Status:** ⬜ Not Started
+**Status:** ✅ Completed
 **Wave:** 0
 **Phase:** Phase 1 — Parsing core (its fixture half)
 **Provides:** C-12
@@ -1051,8 +1070,13 @@ these two byte checks the controller runs:
 ```bash
 F=server/test/fixtures/projects/-fixture-project/11111111-1111-1111-1111-111111111111.jsonl
 wc -l "$F"                    # expect 14
-tail -c 50 "$F"; echo         # expect: {"type":"assistant","uuid":"u-torn","message":{"usa
+tail -c 51 "$F"; echo         # expect: {"type":"assistant","uuid":"u-torn","message":{"usa
 ```
+
+**Corrected during execution:** this check originally said `tail -c 50`, but the torn fragment is **51**
+bytes, so `-c 50` can never show its leading `{` — it prints the string one byte short and reads as a
+mismatch when the fixture is in fact correct. Task 2's agent hit this, verified the bytes independently with
+`xxd`, and flagged it rather than "fixing" the fixture to match a wrong check. Use `tail -c 51`.
 
 **Mutations to reject:** not applicable — there is no implementation. The equivalent guard is the byte
 checks above; a fixture with a trailing newline on the last line silently turns `malformedLines: 3` into
@@ -1085,13 +1109,37 @@ git commit -m "Add fixture transcripts with a torn line, a synthetic entry and a
   invalidates Tasks 4, 5, 9, 14 and the C-13 fixture JSON at once, so treat it as a frozen contract
 - Repo-memory candidates: none yet — revisit only if the fixture survives the Final Gate unchanged
 
-**Progress notes:** _(filled in by executing-task)_
+**Progress notes:** ✅ Completed. Success criteria: MET (all 6). Files: the 5 listed paths, nothing else.
+`Verification: none` for this task, so the byte checks are the gate and the controller ran them all
+independently:
+- `wc -l` → **14** (15 logical lines, last unterminated)
+- `tail -c 51` → `{"type":"assistant","uuid":"u-torn","message":{"usa`; Python confirms the file does **not**
+  end in `\n` and the final line is exactly 51 bytes
+- Lines 1–12 parse; lines **13, 14, 15** all fail `JSON.parse` → `malformedLines: 3` as C-12 requires
+- Ignorable (well-formed, `type` neither `assistant` nor `user`) totals **5** across the three `.jsonl` files
+  — 4 in the main file (`last-prompt`, `attachment`, `file-history-snapshot`, `system`) plus 1 in
+  `-fixture-project-two` — matching C-12's `ignoredLines: 5` and confirming the malformed/ignorable split is
+  where it is claimed
+- The `u-m7` rollup trap is intact: `"totalTokens":99999` still present. This is the only guard against the
+  project's highest-impact double-count bug, so a "tidied" fixture would have silently disarmed it
+- The shared-`requestId` group in the sidechain file still reads `output_tokens` **5, 5, 153**, so Task 5's
+  keep-last dedupe has something to prove against
+- `.meta.json` parses with `agentType: "general-purpose"`
+
+Mutations: not applicable (no implementation). Commit: `7a6b8d7`.
+
+**Doc defect found and corrected by this task:** the review check said `tail -c 50` while the torn fragment
+is 51 bytes, so the documented command could never print the expected string. The agent verified its bytes
+with `xxd`, left the fixture alone, and reported the inconsistency instead of editing data to match a wrong
+check — the right call, and the check is now `tail -c 51`. Also note it used Python rather than `printf` to
+write the bytes, to avoid shell backslash-interpretation mangling the escaped `\n` inside the `u-m5`
+`<command-name>` line; verified via `repr()` that no real newline byte was introduced.
 
 ---
 
 ### Task 3: Web scaffold, frontend contract declaration, fixture aggregate, and page stubs
 
-**Status:** ⬜ Not Started
+**Status:** ✅ Completed
 **Wave:** 0
 **Phase:** — (scaffold + registry transcription; precedes Phase 3)
 **Provides:** C-13, C-15 (the interface and four stub modules)
@@ -1369,7 +1417,28 @@ git commit -m "Scaffold the web package with the aggregate contract, fixture and
 - Repo-memory candidates: `ResponsiveContainer` is unusable under jsdom; frontend charts take explicit
   `width`/`height`. Promote once a real chart task has confirmed it
 
-**Progress notes:** _(filled in by executing-task)_
+**Progress notes:** ✅ Completed. Success criteria: MET (all 6). Files: the 15 listed paths, nothing else —
+`server/` and the root `package.json` untouched. Verified by controller:
+`npm test --prefix web -- run src/api/types.test.ts` → `Tests 4 passed (4)`.
+**Mutation M3 proven by controller** (renamed the fixture's `2026-07-09` day key to `2026-07-08`, the UTC
+bucketing of its first message) → test 4 failed with
+`expected [ '2026-07-08', '2026-07-10' ] to strictly equal [ '2026-07-09', '2026-07-10' ]`; reverted and the
+fixture confirmed byte-identical afterwards. This was the mutation worth spending time on: it is the only
+place in the frontend where the local-time contract is pinned, and a UTC-bucketed fixture would have left all
+of Tasks 9–13 green while encoding the exact bug the timezone decision exists to prevent.
+Stubs confirmed inert: `grep -c 'recharts\|useState\|filter('` returns **0** for all six stub files, so no
+Wave 1 task will collide with a half-implementation.
+**C-3's two declaration sites agree:** `AGGREGATE_STATS_KEYS` in `web/src/api/types.ts` is identical to
+`server/src/stats/contracts.ts` (diffed the extracted key arrays → identical). This is the drift risk the
+registry flags, and it is clean at Wave 0. Commit: `a24e173`.
+
+**Deviation — `web/src/main.tsx` content was not dictated by the task.** The task listed the file to create
+but gave no body, so the agent wrote a minimal Vite entrypoint that imports the **fixture** and renders
+`<App stats={stats} />`. Reasonable for Wave 0 (there is no API to fetch from yet, and it keeps the package a
+valid Vite entry), and it contains no logic. **But it must not survive to the end:** a production entrypoint
+that renders fixture data instead of `GET /api/stats` is exactly the kind of leftover scaffold the Final
+Gate's cross-task reviewer hunts for. Task 15 owns rewiring it and carries `Same agent as Task 3`. Carried
+forward below.
 
 ---
 
@@ -4228,6 +4297,27 @@ _Cross-wave reminders, helpers introduced, scope decisions made mid-run. Append;
 - Authoring-time note: the fixture's expected aggregate was computed twice — by hand from the fixture bytes
   and mechanically by a throwaway script — and the two agreed. The script was scratch and is not in the repo;
   if a number is ever disputed, recompute from the bytes rather than trusting this doc.
+
+**After Wave 0 (2026-08-01):**
+
+- **`web/src/main.tsx` renders the fixture, not the API.** Task 3 authored it that way because the task text
+  did not specify its body and no API existed yet. **Task 15 must rewire it to fetch `GET /api/stats`**, and
+  the Final Gate must confirm no fixture import survives in the production entrypoint. This is the single
+  most likely piece of leftover scaffolding in the run.
+- **C-3 now genuinely exists in two files** (`server/src/stats/contracts.ts`, `web/src/api/types.ts`) and they
+  were verified identical at Wave 0. Any C-3 amendment must reach both, and Task 14's deep-equal against the
+  web fixture is the only mechanical drift lock.
+- **Task 2's fixture bytes are frozen.** Five later tasks assert numbers derived from them. Two documented
+  behaviors are *fixture-only* and unobservable against real data: the torn final line (zero parse failures
+  exist in the real tree) and `agentType: 'unknown'` (all 295 real sidechains have their `.meta.json`).
+  Nobody should "simplify" those out of the fixture.
+- **A mutation can be mis-specified.** Task 1's M3 was unprovable against the test the same task mandates
+  verbatim. The pattern to watch: a mutation that renames a *type* member is invisible to a test that only
+  touches *runtime* values, because Vitest transforms TypeScript without type-checking it. Such a mutation
+  needs `tsc --noEmit` as its verification, not the test runner — Task 3's M4 is the correctly-specified
+  version of that idea.
+- **Fixture-byte checks need exact byte counts.** Task 2's `tail -c 50` could not print a 51-byte fragment.
+  Corrected in place. If a byte check disagrees with a fixture, suspect the check.
 
 ## Repo-Memory Candidates
 
