@@ -2,7 +2,7 @@
 type: task
 title: "Claude Code Usage Dashboard — Task Breakdown"
 description: "Contract-first breakdown of the local NestJS + Vite/React dashboard that parses ~/.claude transcripts, covering package scaffolding, the parsing core, the stats API, the four frontend pages, and the real-data verification."
-status: not_started
+status: in_progress
 owner: "eric1234463@gmail.com"
 ticket: "DASH-0000"
 created: "2026-08-01"
@@ -18,6 +18,13 @@ wiki: false
 **Branch:** feature/DASH-0000-claude-usage-dashboard — `executing-task` will not dispatch on any other branch
 **Started:** 2026-08-01
 **Completed:** —
+
+**Test baseline (captured by controller before dispatch, at `4a35c81`):** **no test suite exists.** The repo
+is greenfield — no `package.json`, no `server/`, no `web/`, no runner — so there is nothing to run and
+nothing that could already be red. Wave 0 creates the first executable tests. Every test that exists at the
+Final Gate was therefore created by this run, and "all tests pass" is a claim about this run's own suite
+with no pre-existing failures to net out. Preconditions verified at dispatch: Node v24.13.0, npm 11.6.2,
+`~/.claude/projects` present, plan present, branch `feature/DASH-0000-claude-usage-dashboard`, tree clean.
 
 ## Source Plan Summary
 
