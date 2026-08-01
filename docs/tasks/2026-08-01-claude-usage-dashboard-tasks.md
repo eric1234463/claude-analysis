@@ -515,6 +515,29 @@ real pipeline output against the web-side fixture JSON.
 _Filled in by executing-task. One entry per amendment: contract ID, what changed, why, which consumers
 were notified, and the commit that carries it._
 
+### A-1 — C-4 `scanTranscripts` ordering (2026-08-01)
+
+**What changed.** C-4's "Sorted by `path` ascending" is replaced by: *results are returned in
+directory-walk order — a depth-first traversal in which each directory's entries are visited in ascending
+name order.* This is component-wise (prefix) ordering, **not** a flat string sort of the absolute paths.
+
+**Why.** The two orderings genuinely differ, and the registry text named the wrong one. `.` is 0x2E and `/`
+is 0x2F, so under a flat string compare `<session>.jsonl` sorts *before* `<session>/subagents/agent-*.jsonl`
+— yet C-4's own mandated test requires the sidechain entry first. Controller verified independently:
+`sorted(['/r/-p/11111111.jsonl', '/r/-p/11111111/subagents/agent-x.jsonl'])` puts the main file first, the
+opposite of the test's expectation. Task 4's agent hit the contradiction, resolved it in favour of the test,
+and reported it. The implementation is correct; only the wording was wrong.
+
+**Consumers notified.** C-4's only consumer is **Task 14** (Wave 2), which was **not yet dispatched** when
+this was found, so no running agent needed a broadcast — the amended wording went into Task 14's dispatch
+brief instead. No committed task depended on the ordering.
+
+**Carried by.** `4b47870` (the implementation); this registry text.
+
+**Residual note.** `scanner.ts`'s own doc comment still carries the original short phrase "Sorted by `path`
+ascending". Left as-is rather than sending an agent back for a comment, but read it against this amendment —
+a future reader who implements a flat sort from that comment would break Task 14.
+
 ---
 
 ## Preconditions
@@ -1446,7 +1469,7 @@ forward below.
 
 ### Task 4: Transcript discovery and main/sidechain classification
 
-**Status:** ⬜ Not Started
+**Status:** ✅ Completed
 **Wave:** 1
 **Phase:** Phase 1 — Parsing core
 **Provides:** C-4
@@ -1633,13 +1656,28 @@ git commit -m "Add transcript scanner with main and sidechain classification"
 - Repo-memory candidates: the two transcript path shapes are exhaustive as of 2026-08-01 (0 of 509 files
   deviate) — durable enough to record after the Final Gate
 
-**Progress notes:** _(filled in by executing-task)_
+**Progress notes:** ✅ Completed. Success criteria: MET (all 8). Files: `server/src/stats/scanner.ts`, `scanner.test.ts`.
+Verified by controller: `npm test --prefix server -- run src/stats/scanner.test.ts` → `Tests 9 passed (9)`.
+**Mutation proven by controller (M1):** my first attempt was a dud — I patched the *main*-file branch, where
+`parts[parts.length-2] === parts[0]`, so it was a no-op and tests still passed. Re-aimed at the sidechain
+branch (line 24, `project: parts[0]` → `parts[2]`) it failed 3 tests, including the explicit
+`never keys a project as "subagents" or by a session UUID` guard:
+`expected { project: 'subagents', …(2) } to strictly equal { project: '-proj', …(2) }`. Reverted
+byte-identical. Confirmed no imports of `parser.ts`/`aggregator.ts`. Commit: `4b47870`.
+
+**C-4 AMENDED — see Amendments.** The agent found that C-4's "Sorted by `path` ascending" cannot mean a flat
+string sort: `.` (0x2E) sorts below `/` (0x2F), so `<session>.jsonl` compares *before*
+`<session>/subagents/...`, while the mandated test requires the sidechain first. I verified this independently
+(`sorted(['/r/-p/11111111.jsonl', '/r/-p/11111111/subagents/agent-x.jsonl'])` returns main first). It
+implemented a depth-first walk with per-directory sorted `readdir`, which produces the test's order. The
+implementation is right; the *contract wording* was wrong, so I amended C-4 rather than the code. Note
+`scanner.ts`'s own doc comment still carries the short wording — read it against the amended registry.
 
 ---
 
 ### Task 5: Transcript line parser — lines to `UsageEvent`s
 
-**Status:** ⬜ Not Started
+**Status:** ✅ Completed
 **Wave:** 1
 **Phase:** Phase 1 — Parsing core
 **Provides:** C-5
@@ -1940,13 +1978,29 @@ git commit -m "Add transcript line parser with per-file dedupe and local-time da
 - Repo-memory candidates: `line.toolUseResult` (not the `tool_result` content block) is where Claude Code
   writes the subagent rollup — durable and non-obvious. Record after the Final Gate
 
-**Progress notes:** _(filled in by executing-task)_
+**Progress notes:** ✅ Completed. Success criteria: MET (all 7). Files: `server/src/stats/parser.ts`, `parser.test.ts`.
+Verified by controller: `npm test --prefix server -- run src/stats/parser.test.ts` → `Tests 15 passed (15)`.
+Agent proved **11** mutations (M1–M11), the most of any task in the run.
+**Mutation proven by controller (M1, the rollup trap — the highest-impact bug in the project):** this took
+three attempts and the failures are instructive. Attempt 1 patched inside `if (message?.usage)`, which only
+runs for `type: "assistant"` lines, so it never saw the `user` line carrying the rollup → no-op. Attempt 2
+referenced an out-of-scope `dedupeKey` and failed with `ReferenceError` — a failure for the wrong reason,
+which is not a proof. Attempt 3 relaxed the branch guard so a `toolUseResult.usage` on a user line is
+harvested as if it were `message.usage`, and that failed correctly:
+`expected { input: 790, output: 915, …(2) } to strictly equal { input: 13, output: 27, …(2) }` — 790 = 13 + the
+trap's 777. **The double-count guard is genuine.** Reverted byte-identical. Commit: `849a76e`.
+
+**Doc conflict resolved by the agent, correctly.** The task's "Implement" step says to copy C-5's JSDoc
+verbatim (which contains the literal word `toolUseResult`), while the same task's review checklist requires
+`grep -n "toolUseResult" parser.ts` to return nothing — even in a comment. It honoured the mechanical gate and
+restated the prohibition without the literal identifier. Reasonable: the grep is a crude proxy for "never
+*reads* the rollup", and M1/M2 prove the real property far better than a string search could.
 
 ---
 
 ### Task 6: Aggregator — `UsageEvent`s to `AggregateStats`
 
-**Status:** ⬜ Not Started
+**Status:** ✅ Completed
 **Wave:** 1
 **Phase:** Phase 1 — Parsing core
 **Provides:** C-6
@@ -2216,13 +2270,19 @@ git commit -m "Add aggregator rolling usage events into the day-by-project fact 
   numbers; the hand-built events here only prove the merge semantics
 - Repo-memory candidates: none
 
-**Progress notes:** _(filled in by executing-task)_
+**Progress notes:** ✅ Completed. Success criteria: MET (all 7). Files: `server/src/stats/aggregator.ts`, `aggregator.test.ts`.
+Verified by controller: `npm test --prefix server -- run src/stats/aggregator.test.ts` → `Tests 12 passed (12)`.
+Agent proved 7 mutations. **Mutation proven by controller:** made `agent-run` also increment
+`sessionsStarted`, reproducing the sidechain-inflates-sessions bug the plan's Decision 5 exists to prevent →
+`AssertionError: expected 3 to be 2`. Reverted byte-identical. Purity confirmed: `grep -cE
+"Date\.now|new Date|Intl\.|resolvedOptions"` on `aggregator.ts` returns **0**, so it reads neither clock nor
+ambient zone. Commit: `2bae8fe`.
 
 ---
 
 ### Task 7: Per-file aggregate cache with corrupt-store recovery
 
-**Status:** ⬜ Not Started
+**Status:** ✅ Completed
 **Wave:** 1
 **Phase:** Phase 2 — NestJS API and cache
 **Provides:** C-7 (`fileCacheKey` and `JsonFileAggregateCache`)
@@ -2437,13 +2497,24 @@ git commit -m "Add per-file aggregate cache keyed by path, mtime, size and time 
   the JSON store is exercised only by this task's tests until Task 15 runs the real server
 - Repo-memory candidates: none
 
-**Progress notes:** _(filled in by executing-task)_
+**Progress notes:** ✅ Completed. Success criteria: MET. Files: `server/src/stats/file-cache.ts`, `file-cache.test.ts`.
+Verified by controller: `npm test --prefix server -- run src/stats/file-cache.test.ts` → **10 passed** (9
+originally, +1 after strengthening). Confirmed no peer imports and no test writes outside `mkdtemp`.
+Commit: `1111f55`.
+
+**Weak assertion found and fixed — the first instance of a pattern that recurred across this wave.** The agent
+reported that **M2 could not fail**: the mandated "well formed but not an object map" test wrote `'[1,2,3]'`
+and asserted only that key `'k1'` was absent, but `Object.entries([1,2,3])` yields keys `'0'`/`'1'`/`'2'`,
+which never collide with `'k1'` — so the test passed with the `Array.isArray` guard deleted. It kept the
+(contractually correct) guard and reported rather than editing a test it was told to write verbatim. **I
+authorized strengthening it**, because a named mutation that cannot fail means the test pins nothing there.
+Re-proven after strengthening: both M2 variants now fail with `expected 1 to be undefined`.
 
 ---
 
 ### Task 8: NestJS stats module — config, single-flight service, HTTP surface
 
-**Status:** ⬜ Not Started
+**Status:** ✅ Completed
 **Wave:** 1
 **Phase:** Phase 2 — NestJS API and cache
 **Provides:** C-9, C-10, C-11 (`loadConfig`)
@@ -2738,13 +2809,25 @@ git commit -m "Add stats module with single-flight refresh and the aggregate end
 - Repo-memory candidates: NestJS 11 DI works under Vitest 4 with no swc plugin — promote once this task
   is green, since it is the first real Nest DI exercise in the repo
 
-**Progress notes:** _(filled in by executing-task)_
+**Progress notes:** ✅ Completed. Success criteria: MET (all 7). Files: `config.ts`, `stats.service.ts`, `stats.controller.ts`,
+`stats.module.ts`, `stats.module.test.ts`.
+Verified by controller: `npm test --prefix server -- run src/stats/stats.module.test.ts` → `Tests 9 passed (9)`.
+**Mutation proven by controller (M1, single-flight):** removed the in-flight promise reuse → 2 failures,
+`expected Promise{…} to be Promise{…}` (callers no longer share one promise) and `expected 2 to be 1` (the
+pipeline ran twice). Reverted byte-identical.
+**Stand-in held:** `stats.service.ts` references only the `StatsPipeline` *type* and the injected
+`STATS_PIPELINE` token — `server/src/stats/pipeline.ts` does not exist on disk at all, confirming the port
+seam is real and Task 8 genuinely did not wait for Task 14. `grep -cE "resolvedOptions" config.ts` → **0**, so
+the timezone comes from config, never the ambient zone. Commit: `1996179`.
+
+Deviation: added `@HttpCode(200)` to `POST /api/stats/refresh`, since Nest defaults POST to 201 and C-10
+specifies a 200 body. Decorator mechanics, not a contract change — accepted.
 
 ---
 
 ### Task 9: Client-side aggregation layer — `filterStats` and `daySeries`
 
-**Status:** ⬜ Not Started
+**Status:** ✅ Completed
 **Wave:** 1
 **Phase:** Phase 3 — Frontend
 **Provides:** C-14
@@ -2975,13 +3058,32 @@ git commit -m "Add client-side stats filtering over pre-bucketed day keys"
 - Repo-memory candidates: `YYYY-MM-DD` day keys are compared as strings throughout the frontend — record
   after the Final Gate as the convention that keeps the timezone decision server-side
 
-**Progress notes:** _(filled in by executing-task)_
+**Progress notes:** ✅ Completed. Success criteria: MET. Files: `web/src/api/filterStats.ts` (stub body replaced),
+`filterStats.test.ts`.
+Verified by controller: `npm test --prefix web -- run src/api/filterStats.test.ts` → **14 passed** (12
+originally, +2 after strengthening).
+**Mutation proven by controller (M1):** replaced the plain string day comparison with `new Date(day) <
+new Date(from)` → the suite's Date-constructor guard tripped:
+`'Error: filterStats must not construct a Date' was thrown`. That guard is a genuinely good test — it stubs
+the constructor rather than grepping for it. `grep -cE "new Date|Date\.now|Intl\.|getTime|toISOString"` on
+`filterStats.ts` → **0**. Commit: `30b6738`.
+
+**Two weak assertions found and fixed.** The agent reported that **M5** (empty `projects: []`) and **M7**
+(`daySeries` ascending order) could not fail the mandated suite — M7 because the fixture's day keys are
+already ascending, so deleting `.sort()` was invisible. M7 mattered: C-14 promises ascending order and all
+three chart pages render straight from `daySeries`, so an ordering regression would silently mis-draw every
+time series. I authorized making both temporary proofs permanent.
+**My own verification of the new guard was initially wrong and I corrected it.** I first stripped the *first*
+`.sort()` in the file (line 70, a dimension-list helper), saw 14/14 still pass, and committed anyway — a
+process error. Re-checked against the actual `daySeries` sort (line 122) it fails correctly:
+`expected [ '2026-07-10', '2026-07-09' ] to strictly equal [ '2026-07-09', '2026-07-10' ]`. The agent also
+caught that my message to it had claimed this task was already committed when it was not; it was right.
 
 ---
 
 ### Task 10: App shell — navigation, date-range and project filters
 
-**Status:** ⬜ Not Started
+**Status:** ✅ Completed
 **Wave:** 1
 **Phase:** Phase 3 — Frontend
 **Provides:** the `AppProps` / `AppDeps` surface (declared with C-15 by Task 3)
@@ -3178,13 +3280,19 @@ git commit -m "Add app shell with page navigation and client-side filters"
   shell renders real page content
 - Repo-memory candidates: none
 
-**Progress notes:** _(filled in by executing-task)_
+**Progress notes:** ✅ Completed. Success criteria: MET (all 7). Files: `web/src/App.tsx` (stub body replaced), `App.test.tsx`.
+Verified by controller: `npm test --prefix web -- run src/App.test.tsx` → `Tests 7 passed (7)`.
+**Mutation proven by controller (M1, the injection seam):** stripped both `deps.` prefixes so the component
+calls the real `filterStats`/`daySeries` → **all 7 tests failed** with `Error: not implemented`, thrown by the
+Wave 0 stubs. That is the cleanest possible demonstration that this task never depended on Task 9's
+implementation. Reverted byte-identical. Only a *type-only* `import type { StatsFilter }` crosses to Task 9's
+module, which erases at compile time. Commit: `3aede36`.
 
 ---
 
 ### Task 11: Overview page — daily tokens, sessions, models and projects
 
-**Status:** ⬜ Not Started
+**Status:** ✅ Completed
 **Wave:** 1
 **Phase:** Phase 3 — Frontend
 **Provides:** C-15 `Overview`
@@ -3362,13 +3470,24 @@ git commit -m "Add Overview page with main-vs-subagent daily token breakdown"
 - Repo-memory candidates: Recharts jsdom selectors — `.recharts-bar` per `<Bar>`, `.recharts-bar-rectangle`
   per series-row pair, `ResponsiveContainer` renders nothing. Promote after the Final Gate
 
-**Progress notes:** _(filled in by executing-task)_
+**Progress notes:** ✅ Completed. Success criteria: MET (all 6). Files: `web/src/pages/Overview.tsx` (stub body replaced),
+`Overview.test.tsx`.
+Verified by controller: `npm test --prefix web -- run src/pages/Overview.test.tsx` → `Tests 7 passed (7)`.
+**Mutation proven by controller (M1):** removed the sidechain `<Bar>`, deleting the main-vs-subagent
+breakdown the user specifically asked for → `expected 1 to be 2`. Reverted byte-identical.
+`grep -c 'ResponsiveContainer\|filterStats\|new Date'` → **0**. Commit: `d24fcf2`.
+
+**Deviation accepted — `minPointSize={1}` on both stacked bars.** Recharts 3.10.1 drops zero-height stacked
+rectangles from the DOM entirely (the agent read `computeBarRectangles` to confirm), and the fixture's
+`2026-07-10` cell has `sidechainTokens.total === 0` — **I verified that independently in the fixture JSON** —
+so without it the mandated 4-rectangle assertion sees 3. It is also better UX: a reader sees "no subagent
+activity" rather than a silently missing segment. New repo-memory fact, recorded below.
 
 ---
 
 ### Task 12: Skills and Tools pages
 
-**Status:** ⬜ Not Started
+**Status:** ✅ Completed
 **Wave:** 1
 **Phase:** Phase 3 — Frontend
 **Provides:** C-15 `Skills`, C-15 `Tools`
@@ -3589,13 +3708,24 @@ git commit -m "Add Skills and Tools pages with separate skill and slash-command 
   it, extract it then rather than pre-sharing a file two tasks would own
 - Repo-memory candidates: none
 
-**Progress notes:** _(filled in by executing-task)_
+**Progress notes:** ✅ Completed. Success criteria: MET. Files: `web/src/pages/Skills.tsx`, `Tools.tsx` (stub bodies replaced),
+`Skills.test.tsx`, `Tools.test.tsx`.
+Verified by controller: `npm test --prefix web -- run src/pages/Skills.test.tsx src/pages/Tools.test.tsx` →
+**13 passed across 2 files** (11 originally, +2 after strengthening). `grep -c
+'ResponsiveContainer\|filterStats'` → **0** for both pages. Commit: `f2f9306`.
+**Mutation proven by controller (M5):** removed the `calls === 0 ? 0 : errors / calls` guard → the new
+zero-call test failed, rendering `NaN` in the error-rate column.
+
+**Two weak assertions found and fixed.** The agent reported **M5** unprovable (the empty-selection test sets
+`stats.tools = []`, so no row ever reaches a zero division and no `NaN` can appear) and **M7** unprovable (all
+four fixture tools tie at 1 call, so ascending and descending are indistinguishable). Both are now permanent
+tests. It also correctly declined to claim the mandated suite had caught them.
 
 ---
 
 ### Task 13: Efficiency page — cache ratio, error rate, per-session cost, subagent share
 
-**Status:** ⬜ Not Started
+**Status:** ✅ Completed
 **Wave:** 1
 **Phase:** Phase 3 — Frontend
 **Provides:** C-15 `Efficiency`
@@ -3792,7 +3922,19 @@ git commit -m "Add Efficiency page with cache ratio, error rate and subagent sha
   detail on this page
 - Repo-memory candidates: none
 
-**Progress notes:** _(filled in by executing-task)_
+**Progress notes:** ✅ Completed. Success criteria: MET (all 7). Files: `web/src/pages/Efficiency.tsx` (stub body replaced),
+`Efficiency.test.tsx`.
+Verified by controller: `npm test --prefix web -- run src/pages/Efficiency.test.tsx` → `Tests 8 passed (8)`.
+Agent proved 8 mutations, **all of which failed as documented** — the only Wave 1 task with no weak-assertion
+finding.
+**Mutation proven by controller (M1, the cache-hit formula):** changed the denominator to
+`totals.tokens.total` (i.e. including output tokens) → `expected '77.1%' to contain '77.6%'`. The plan fixes
+this formula as `cacheRead / (input + cacheRead + cacheCreation)`; I confirmed the shipped code computes
+exactly that. Reverted byte-identical. Commit: `8864a86`.
+
+Note: the `series` prop is accepted to satisfy `PageProps` but unused, since every metric on this page derives
+from `stats.totals`/`stats.days`. Intentional, not an omission — flagged here so the Final Gate's cross-task
+reviewer does not read it as a dead parameter.
 
 ---
 
@@ -4318,6 +4460,35 @@ _Cross-wave reminders, helpers introduced, scope decisions made mid-run. Append;
   version of that idea.
 - **Fixture-byte checks need exact byte counts.** Task 2's `tail -c 50` could not print a 51-byte fragment.
   Corrected in place. If a byte check disagrees with a fixture, suspect the check.
+
+**After Wave 1 (2026-08-01):**
+
+- **SYSTEMIC: four of ten Wave 1 tasks had named mutations their mandated tests could not detect.** Tasks 7
+  (M2), 9 (M5, M7) and 12 (M5, M7) all reported it; Task 13 was the only task whose full mutation list failed
+  as documented. In every case the *implementation* was correct and the *test* was blind, and in every case
+  the agent reported it instead of claiming a pass. All are now permanently pinned. **The pattern to expect in
+  any future breakdown for this repo:** a mutation is undetectable when the fixture happens to satisfy the
+  property by accident — already-ascending day keys hide a missing `.sort()`, four tools tied at 1 call hide
+  an inverted rank, an empty collection hides a division guard, an array's numeric keys never collide with the
+  one key a test probes. When authoring a mutation, ask what fixture state would make it invisible.
+- **A type-rename mutation cannot be caught by the test runner.** Vitest transforms TypeScript without
+  type-checking, so renaming an interface member is invisible to tests that only touch runtime values (Task
+  1's M3). Such a mutation must be verified with `tsc --noEmit`, as Task 3's M4 correctly does.
+- **`ResponsiveContainer` — the earlier note was overstated.** Tasks 11 and 12 *independently* found that a
+  `ResponsiveContainer` given **fixed numeric** `width`/`height` does **not** reproduce the jsdom
+  zero-measurement failure; only **percentage** sizing (`width="100%"`) does. The shipped code avoids it
+  entirely either way, so nothing depends on this, but do not promote the blanket claim to repo memory.
+- **Recharts drops zero-height stacked rectangles from the DOM.** Confirmed in Recharts 3.10.1
+  (`computeBarRectangles`). Any stacked chart whose data can legitimately be `0` needs `minPointSize` to keep
+  a visible and testable mark — Overview needs it because the fixture's `2026-07-10` has zero sidechain
+  tokens. This is a real UX point too, not just a test artifact.
+- **For Task 14 (Wave 2):** C-4's ordering is amended (see A-1) — directory-walk order, not a flat path sort.
+  `server/src/stats/pipeline.ts`, `main.ts` and `app.module.ts` still do not exist; Task 14 creates all three,
+  and `StatsModule` deliberately does **not** provide `STATS_PIPELINE`, so Task 14 must bind it for the app to
+  boot.
+- **For Task 15 (Wave 2):** `web/src/main.tsx` still renders the **fixture**. Rewiring it to fetch
+  `GET /api/stats` is Task 15's job and the Final Gate must confirm no fixture import survives in the
+  production entrypoint.
 
 ## Repo-Memory Candidates
 
