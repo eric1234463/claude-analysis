@@ -719,536 +719,70 @@ head -30 "$D" | grep -q "turborepo-monorepo-tooling" && echo "note: links the pl
 # b. The historical record is byte-for-byte intact
 grep -c "npm install --prefix" "$D"      # expect: 6
 grep -c "npm test --prefix"    "$D"      # expect: 44
-grep -c "^## Final Summary"    "$D"      # expect: 1
+grep -c "^## Final Summary
 
-# c. No status marker was disturbed
-grep -c "✅ Completed" "$D"
-# expect: unchanged from before your edit — capture the count first
-```
+**6 tasks, all ✅ Completed.** 3 waves as planned, plus one Final Gate follow-up commit.
 
-### Mutations to reject
+**Suite result against baseline:** the baseline was **green** (server 8/76, web 8/74 at `73ecb02`), and the
+run ends **green and identical** — 150 tests, force-executed past the cache in an isolated worktree. Both
+type checks clean, both builds succeeding. No test was added or changed by this run; the existing suite is
+the regression instrument, and its invariance *is* the result.
 
-Apply each, confirm the check fails, revert, and **report the failure output**:
+**Commits (in order):**
 
-1. **"Helpfully" rewrite one `npm install --prefix server` to `npm install`** → check (b) reports 5 instead of 6. This is the failure this task exists to prevent: it falsifies the record of an executed run.
-2. **Put the note at the bottom instead of the top** → check (a) finds nothing in the first 30 lines. A warning after 4,600 lines is not a warning.
-
-### Success criteria
-
-- [ ] One note added immediately after the H1, warning against the historical install commands and linking the plan
-- [ ] All six `npm install --prefix` occurrences **unchanged**
-- [ ] All 44 `npm test --prefix` occurrences unchanged
-- [ ] Final Summary, task statuses, and frontmatter untouched
-- [ ] Diff is the added note and nothing else
-- [ ] No `npm` command was run during this task
-- [ ] Both mutations applied, failures observed, output reported
-
-### Controller review checklist
-
-- [ ] `git diff --stat` shows a small positive line count and **zero deletions** — any deletion means historical content was altered
-- [ ] Re-run check (b) yourself
-- [ ] Confirm the note names the plan by path so a reader can follow it
-
-### Commit (controller runs after review)
-
-```bash
-git add -- docs/tasks/2026-08-01-claude-usage-dashboard-tasks.md
-git commit -m "Note that the dashboard run's install commands are superseded"
-```
-
-### Progress notes
-
-✅ Completed. Success criteria: MET (all 7). Files: docs/tasks/2026-08-01-claude-usage-dashboard-tasks.md.
-**Verified by controller:** `git diff --numstat` → **7 insertions, 0 deletions** — the historical record is
-byte-intact; install `--prefix` count 6, test `--prefix` count 44, Final Summary 1, `✅ Completed` markers 29,
-all unchanged; note present in `head -30` and links the plan. **Mutation 1 proved by controller** (falsified
-one install command → count dropped to 5; reverted). Commit: 51141c3.
-**Deviation worth keeping:** the agent's first draft quoted the literal strings `npm install --prefix` /
-`npm test --prefix` inside the warning prose, which inflated the grep counts to 7 and 45 — the note was being
-counted as one of the commands it warns about. It rephrased to describe the commands without reproducing the
-matched substrings. See Carry-Forward Note CF-3.
-
----
-
-## Wave 1 Summary
-
-**Status:** ✅ Complete — 4/4 tasks committed, working tree clean.
-
-**C-5 baseline record** (captured by Task 1 before any deletion; Task 6 compares against this):
-
-```
-server: 8 test files, 76 tests passing
-web:    8 test files, 74 tests passing
-resolved versions: typescript@5.9.3, vitest@4.1.10, vite@8.2.0, reflect-metadata@0.2.2
-```
-
-**Commits:** `f43cabc` T1 · `9bc77d3` T2 · `0e5510c` T3 · `51141c3` T4
-
-**Amendments issued during Wave 1:** none. **But C-2 was amended in Wave 2** — Task 5 found that the
-`devEngines.packageManager.version` value Wave 1 committed breaks every turbo invocation. Wave 1's own
-verification could not have caught it: npm accepts the unbounded range, and nothing in Wave 1 runs turbo.
-See the Amendments table. Do not read this line as "C-2 was correct".
-
-**Systemic signals watched for:** none fired. The four tasks touched disjoint files with no shared convention
-between them, and no two agents reported the same surprise. The one cross-cutting constraint — "run no npm
-command while Task 1 rebuilds node_modules" — was honoured by all three non-installing agents.
-
-### Carry-Forward Notes
-
-- **CF-1 — Task 1 verification (d) is wrong as written and must not be re-run literally.**
-  `npm ls reflect-metadata --all | grep -c "reflect-metadata@"` returns **3** in a *correct* hoisted install,
-  not 1, because `--all` prints a line per reference and marks repeats `deduped`. The real invariant is the
-  physical copy count: `find node_modules -maxdepth 2 -iname reflect-metadata -type d` → exactly
-  `node_modules/reflect-metadata`. Verified that way. **The Final Gate's adversarial reviewer must use the
-  `find` form, or it will report a false divergence.**
-- **CF-2 — Task 1 verification (a) does not fail loudly under its own mutation 1.** With `"web"` removed from
-  `workspaces`, `npm ls --workspaces --depth=0` still *mentions* the web package and still **exits 0**; the
-  actual signal is that web's dependencies flip to `extraneous` and the `claude-usage-dashboard-web -> ./web`
-  workspace link disappears. An exit-code or plain-grep gate would pass a broken config.
-- **CF-3 — a doc-editing task whose verification greps for command strings can count its own warning text.**
-  Task 4 hit this: prose quoting `npm install --prefix` inflated the very count that proves the record intact.
-  Any future note of this kind must describe the commands rather than reproduce them.
-- **CF-4 — `npm test --prefix <pkg> -- run <path>` survives the workspace migration**, confirmed empirically
-  during Task 3 review (`src/stats/parser.test.ts` → 1 file/16 tests). This is the evidence for the plan's
-  Decision 5 and for keeping both `test` scripts as bare `vitest`. Task 5 must not "improve" them.
-- **CF-5 — OQ-1 was resolved by default at dispatch: document-only, no `CI=true` guard.** C-3 stands exactly as
-  the registry states it. Task 5 implements it unchanged; Task 6 records the bare-`turbo run test` caveat in
-  the README.
-
----
-
-# Wave 2
-
-One task. Dispatches only after Wave 1 is committed.
-
----
-
-## Task 5: Add the Turborepo task graph and root scripts
-
-**Status:** ✅ Completed
-**Phase:** 2 · **Wave:** 2 · **Same agent as Task 1**
-**Provides:** C-3, C-4
-**Consumes:** C-1 (owner Task 2), C-2 (owner Task 1)
-**Assumes decision:** **OQ-1** — whether a bare `turbo run test` needs a guard. Default is document-only, under which C-3 is exactly as written below. Under "guard", C-3's `test` script becomes `CI=true turbo run test -- run`. **The controller answers this before dispatching this task.**
-
-**Files:**
-- Create: `turbo.json`
-- Modify: `package.json` (adds `turbo` devDependency and the four root scripts — Task 1's keys must survive verbatim)
-- Modify: `package-lock.json` (regenerated by the install that adds turbo)
-- Modify: `.gitignore`
-
-### Why this task exists
-
-Wave 1 produced a working npm workspace with no root-level commands. This task adds the orchestration layer that makes `npm run dev` start both processes.
-
-It is in Wave 2 for a mechanical reason: it edits `package.json` and `package-lock.json`, both owned by Task 1 in Wave 1. Turbo cannot be added as a root devDependency before the workspace exists, and the install that adds it rewrites the lockfile Task 1 generated.
-
-### Context you need
-
-Turborepo does not manage installs — it reads the workspace config and orchestrates **scripts by name**. Both packages now expose `dev`, `build`, `test`, `typecheck` (C-1).
-
-The single most important declaration in the file you are writing is `globalDependencies`, and it is not obvious. `server/test/stats.integration.test.ts:29` and `server/src/stats/stats.module.test.ts:16` both `path.resolve` **up and across** into `web/src/api/__fixtures__/aggregate-stats.json`. Turborepo hashes a task against files in its own package, and `inputs` globs are package-relative and cannot escape upward — so without an explicit global declaration, editing that fixture leaves `server#test`'s hash untouched and the cache **replays a recorded pass over a suite that would now fail.** A green root command over a genuinely red suite is the worst outcome this migration can produce.
-
-The second is `outputs` on `build`. A task with no `outputs` caches **logs only**. Both packages build to a gitignored `dist/`, and `server`'s `start` script is `node dist/main.js` — so an undeclared build would take a cache hit, replay logs, restore nothing, and leave `start` failing against a build that just "succeeded". (`server/dist` does not exist yet; it has never been built.)
-
-`.turbo` must be ignored **depth-agnostically** — Turborepo writes per-package `<pkg>/.turbo/` log directories, not only a root one. A pattern anchored with a leading slash would miss them.
-
-### Contracts you provide
-
-**C-4 — Turborepo task graph.** `turbo.json` at the repo root, complete file:
-
-```json
-{
-  "$schema": "https://turborepo.dev/schema.json",
-  "globalDependencies": ["web/src/api/__fixtures__/aggregate-stats.json"],
-  "tasks": {
-    "dev": { "cache": false, "persistent": true },
-    "build": { "outputs": ["dist/**"] },
-    "test": {},
-    "typecheck": {}
-  }
-}
-```
-
-**No `dependsOn` anywhere.** The conventional `build: { dependsOn: ["^build"] }` orders a package's build after its internal workspace dependencies; there is no manifest edge between `server` and `web`, so it resolves to an empty set and would be decoration. Do not add it. The fixture edge is real but is a test-time file read, not a build-order constraint, which is why it lives in `globalDependencies`.
-
-**C-3 — Root script interface.** Added to root `package.json`:
-
-```json
-"dev": "turbo run dev",
-"build": "turbo run build",
-"test": "turbo run test -- run",
-"typecheck": "turbo run typecheck"
-```
-
-Each script invokes **exactly one** turbo task — `turbo run build test -- <args>` is ambiguous when pass-through arguments would reach multiple tasks, so they cannot be combined. The `-- run` forwards a positional argument to each package's bare `vitest`, making the root command single-run without editing either package script.
-
-### Steps
-
-1. Confirm C-2 survived Wave 1: root `package.json` still has `workspaces` and `devEngines`, and there is one root lockfile.
-2. Install turbo as a root devDependency.
-3. Confirm the installed major is **2.x** — the config above uses 2.x semantics (`tasks`, not 1.x `pipeline`). If it is not 2.x, **stop and report**; do not translate the config to another major.
-4. Create `turbo.json` exactly as C-4 states.
-5. Add the four scripts from C-3 to root `package.json`, preserving Task 1's `workspaces`, `devEngines`, `name`, `private`, and `version` verbatim.
-6. Add `.turbo/` to `.gitignore` — no leading slash, so it matches at any depth.
-7. Run the verification below.
-8. **Do not run any git command.**
-
-### Verification
-
-```bash
-# a. Installed major matches the config's semantics
-npx turbo --version | grep -q '^2\.' || { echo "FAIL: turbo is not 2.x"; exit 1; }
-
-# b. C-4's exact shape
-node -e "
-const t=require('./turbo.json');
-if(t.globalDependencies?.[0]!=='web/src/api/__fixtures__/aggregate-stats.json') throw new Error('globalDependencies wrong: '+JSON.stringify(t.globalDependencies));
-if(t.tasks.dev.persistent!==true||t.tasks.dev.cache!==false) throw new Error('dev task must be persistent and uncached');
-if(JSON.stringify(t.tasks.build.outputs)!==JSON.stringify(['dist/**'])) throw new Error('build outputs wrong: '+JSON.stringify(t.tasks.build.outputs));
-for(const k of ['test','typecheck']) if(Object.keys(t.tasks[k]).length!==0) throw new Error(k+' must declare nothing');
-const s=JSON.stringify(t); if(s.includes('dependsOn')) throw new Error('dependsOn must not appear');
-// A globalDependencies path that does not exist degrades SILENTLY: turbo emits no warning and
-// globalCacheInputs.files goes empty, reinstating the stale-replay bug. Assert existence.
-const fs=require('fs');
-for(const g of t.globalDependencies) if(!fs.existsSync(g)) throw new Error('globalDependencies path does not exist: '+g);
-console.log('C-4 OK');
-"
-
-# c. C-3's exact shape, and C-2 preserved
-node -e "
-const p=require('./package.json');
-const want={dev:'turbo run dev',build:'turbo run build',test:'turbo run test -- run',typecheck:'turbo run typecheck'};
-for(const [k,v] of Object.entries(want)) if(p.scripts[k]!==v) throw new Error(k+': '+p.scripts[k]);
-if(JSON.stringify(p.workspaces)!==JSON.stringify(['server','web'])) throw new Error('C-2 workspaces lost');
-const dm=p.devEngines?.packageManager;
-if(dm?.name!=='npm'||dm?.version!=='^11.0.0') throw new Error('C-2 devEngines drifted: '+JSON.stringify(dm));
-if(!p.devDependencies?.turbo) throw new Error('turbo not a root devDependency');
-console.log('C-3 OK, C-2 preserved');
-"
-
-# d. The graph resolves to both packages
-npx turbo run typecheck --dry=json | node -e "
-let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
-  const names=JSON.parse(s).tasks.map(t=>t.package).sort();
-  if(JSON.stringify(names)!==JSON.stringify(['claude-usage-dashboard-server','claude-usage-dashboard-web'])) throw new Error('graph resolved to: '+names);
-  console.log('graph OK — both packages');
-});"
-# If --dry=json is unavailable in the installed major, check `npx turbo run --help` and report
-# rather than substituting a different assertion.
-
-# e. .turbo ignored at any depth
-mkdir -p server/.turbo && git check-ignore -q server/.turbo && echo "nested .turbo: ignored" && rmdir server/.turbo
-git check-ignore -q .turbo 2>/dev/null || mkdir -p .turbo && git check-ignore -q .turbo && echo "root .turbo: ignored" && rmdir .turbo
-```
-
-### Mutations to reject
-
-Apply each, confirm the stated check fails, revert, and **report the failure output**:
-
-1. **Delete the `globalDependencies` line** → check (b) throws. This is the highest-value mutation in the run: without it the cache silently replays stale server passes, and Task 6's fixture observation is what catches it behaviorally.
-2. **Remove `outputs` from `build`** → check (b) throws. Task 6 proves the behavioral consequence.
-3. **Add `"dependsOn": ["^build"]` to `build`** → check (b) throws `dependsOn must not appear`.
-4. **Change the root `test` script to `turbo run test`** (dropping `-- run`) → check (c) throws. Behaviorally this is the watch-mode hang.
-5. **Anchor the ignore as `/.turbo`** → check (e)'s nested case fails.
-
-### Success criteria
-
-- [ ] Installed turbo is 2.x and `turbo.json` matches C-4 character for character
-- [ ] `globalDependencies` names the fixture path, root-relative, in the root `turbo.json`
-- [ ] `build` declares `outputs`; `test` and `typecheck` declare nothing; no `dependsOn` anywhere
-- [ ] Root scripts match C-3 exactly, one turbo task each
-- [ ] Task 1's `workspaces`, `devEngines`, `name`, `private`, `version` all survive verbatim
-- [ ] `.turbo` ignored at any depth
-- [ ] All five mutations applied, failures observed, output reported
-
-### Controller review checklist
-
-- [ ] Re-run (a), (b), (c), (d) yourself
-- [ ] Diff `package.json` and confirm C-2's keys are byte-identical to what Task 1 committed — this task is the one place they could be clobbered
-- [ ] Confirm the lockfile diff is only turbo and its transitive dependencies, not a wholesale re-resolution of the tree
-- [ ] Spot-check mutation 1 by applying it yourself — it is the one whose absence is invisible until the cache lies
-- [ ] Confirm OQ-1 was answered before dispatch and C-3 matches the answer
-
-### Commit (controller runs after review)
-
-```bash
-git add -- turbo.json package.json package-lock.json .gitignore
-git commit -m "Add the Turborepo task graph and root scripts"
-```
-
-### Progress notes
-
-✅ Completed. Success criteria: MET (all 8). Files: turbo.json (created), package.json, package-lock.json,
-.gitignore. **Verified by controller:** C-4 shape OK; C-3 scripts exact and amended C-2 preserved;
-`npx turbo run typecheck --dry=json` resolves to exactly both packages; `.turbo` ignored at nested depth.
-**Mutations 1 and 6 proved by controller** — deleting `globalDependencies` throws, and reverting the
-amendment reproduces `invalid_dev_engines_package_manager_field`. Commit: afc437d.
-**This task raised the run's only amendment (C-2)** and correctly refused to fix a contract it did not own.
-Lockfile diff adds only `turbo` and its platform binaries — no re-resolution of the tree.
-
----
-
-## Wave 2 Summary
-
-**Status:** ✅ Complete — 1/1 task committed.
-
-**Commit:** `afc437d`
-
-**Amendment issued:** **C-2** — `devEngines.packageManager.version` `">=11.0.0"` → `"^11.0.0"`. See the
-Amendments table for the full record. This is the run's single most instructive event: a contract value that
-passed its *owner's* verification cleanly (npm accepts an unbounded range) and broke its *consumer* totally
-(turbo refuses to resolve the workspace at all). Wave 1 could not have caught it — nothing in Wave 1 runs
-turbo. The agent reported it rather than fixing it, which is exactly what a frozen registry is for.
-
----
-
-# Wave 3
-
-One task. Dispatches only after Wave 2 is committed.
-
----
-
-## Task 6: Prove the single-command flow and cache correctness
-
-**Status:** ✅ Completed
-**Phase:** 3 · **Wave:** 3 · **Same agent as Task 3**
-**Provides:** none
-**Consumes:** C-1 (owner Task 2), C-2 (owner Task 1), C-3 (owner Task 5), C-4 (owner Task 5), C-5 (owner Task 1)
-**Assumes decision:** **OQ-1** — if the answer was "document-only" (the default), record the bare-`turbo run test` caveat in the README. If "guard", C-3 already carries the guard and the caveat does not apply.
-
-**Files:**
-- Modify: `README.md`
-
-### Why this task exists
-
-Everything before this is configuration that *looks* right. This task is the only place the system is actually run, and three of its observations cannot be made any other way: a cache entry is a real artifact, a proxied request needs two real processes, and a stale replay is invisible in a diff.
-
-It is in Wave 3 because every observation requires turbo installed and the graph committed. No stand-in produces a real cache entry.
-
-### Context you need
-
-Read the **C-5 baseline** from the Wave 1 Summary in this document. If it is not recorded there, **stop and ask the controller** — do not re-derive it. Pre-migration state is not reconstructible from a migrated tree without checking out the parent commit, and a re-derived "baseline" would compare the migration against itself.
-
-Two properties of the cache make naive checks lie, and you must respect both:
-
-- **Turborepo hashes content, not mtime.** `touch` produces a cache *hit*. Every invalidation observation must **modify file contents** and restore them afterward.
-- **Pass-through arguments are part of the task hash.** `npm test` (which is `turbo run test -- run`) and a bare `turbo run test` address **different cache entries**. Every observation must go through the **root scripts**, never a bare `turbo run`. A bare `turbo run test` will also enter watch mode and hang.
-
-`server/dist` has never existed; `web/dist` may exist from earlier work. The build observation needs both created from cold.
-
-### Steps
-
-1. **Baseline conformance.** Run `npm test` and compare against the C-5 record. Identical counts, or stop and report — a difference is dependency drift.
-2. **Two package-tasks per root command.** Run `npm run build`, `npm run typecheck`, `npm test` and confirm each reports work for **both** packages. One is a silently skipped package, which is exactly what a missing script name produces.
-3. **The single dev command.** Start `npm run dev`. Confirm the Nest server answers on `:3000` and Vite on `:5173`, then request `http://localhost:5173/api/stats` and confirm **HTTP 200** with a body identical to `http://localhost:3000/api/stats`. A 404 or 502 means the proxy or the server did not come up. Stop the processes when done.
-4. **Non-zero on failure.** Deliberately break one test in `server`, run `npm test`, confirm the root command exits **non-zero**, then revert. A green root command over a red package is the worst outcome of this migration and is the one thing worth proving by construction.
-5. **Cache correctness, three observations** — all through the root scripts, all with real content edits:
-   - Modify a `server/src` file → `npm test` → **server task misses**. Revert.
-   - Modify `web/src/api/__fixtures__/aggregate-stats.json` → `npm test` → the **server** task misses, not just web. Revert. *This is the observation the whole `globalDependencies` declaration exists for.*
-   - `rm -rf server/dist web/dist` → `npm run build` → confirm a **cache hit** and that **both `dist/` directories are restored** and match a cold build.
-6. **Turbo major.** Confirm `npx turbo --version` is 2.x, matching C-4's semantics.
-7. **Update the README** to document the root command interface now that it exists, including: root `npm run dev` starts both; file-scoped testing stays per-package (`npm test --prefix <pkg> -- run <path>`) because the root form has no scoped variant; and, if OQ-1 resolved to document-only, that a bare `turbo run test` watches and the root scripts are the supported entry point.
-8. **Do not run any git command.**
-
-### Verification
-
-```bash
-# a. Baseline conformance — compare to the C-5 record in Wave 1 Summary
-npm test 2>&1 | tail -20
-
-# b. Both packages participate
-# `grep -c` on the output is NOT a valid participation check: turbo prints a
-# "Packages in scope: server, web" banner regardless of what actually runs, and a pipe discards
-# the exit code. Deleting web's `build` script yields a passing count AND exit 0.
-for t in build typecheck test; do
-  npx turbo run "$t" --dry=json | node -e "
-    let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
-      const pk=JSON.parse(s).tasks.map(x=>x.package).sort();
-      if(JSON.stringify(pk)!==JSON.stringify(['claude-usage-dashboard-server','claude-usage-dashboard-web']))
-        {console.error('resolved to: '+pk);process.exit(1)}
-      console.log('both packages');});"
-done
-npm run build >/dev/null 2>&1 || { echo "FAIL: build exited non-zero"; exit 1; }
-
-# c. Proxy path (with `npm run dev` running in another shell)
-curl -s -o /dev/null -w "%{http_code}\n" http://localhost:5173/api/stats     # expect: 200
-diff <(curl -s http://localhost:5173/api/stats) <(curl -s http://localhost:3000/api/stats) && echo "proxy body identical"
-
-# d. Non-zero on failure (after breaking one server test)
-npm test; echo "exit=$?"                                                     # expect: exit != 0
-
-# e. Fixture invalidation — the observation globalDependencies exists for
-npm test >/dev/null 2>&1                                                     # warm the cache
-node -e "const f='web/src/api/__fixtures__/aggregate-stats.json',fs=require('fs'),j=JSON.parse(fs.readFileSync(f,'utf8'));j.__cachebust=1;fs.writeFileSync(f,JSON.stringify(j,null,2));console.log('fixture modified')"
-# Must name the SERVER task explicitly. A bare `grep -i "cache miss"` is satisfied by WEB's
-# legitimate miss while the server task replays a stale green — which is the exact bug this
-# observation exists to disprove. Verified: with globalDependencies deleted, the loose grep
-# matches and exits 0 while the server suite is actually red (3 tests failing).
-npm test 2>&1 | grep -q "claude-usage-dashboard-server:test: cache miss" \
-  || { echo "FAIL: server task did not miss on a fixture edit"; exit 1; }
-git checkout -- web/src/api/__fixtures__/aggregate-stats.json
-
-# f. Cached build still restores artifacts
-npm run build >/dev/null 2>&1
-rm -rf server/dist web/dist
-npm run build 2>&1 | grep -i "cache hit\|FULL TURBO"
-test -d server/dist && test -d web/dist && echo "both dist/ restored from cache"
-```
-
-### Mutations to reject
-
-These are **observations against the committed config**, so rather than editing your own files you temporarily perturb Wave 2's and confirm the check catches it. Revert each immediately and **report the output**:
-
-1. **Remove `globalDependencies` from `turbo.json`, warm the cache, modify the fixture, run `npm test`** → the server task now reports a **cache hit** and replays a pass. Report that output verbatim — it is the concrete evidence for why C-4 carries that line. Restore `turbo.json`.
-2. **Remove `outputs` from `build`, run `npm run build`, delete both `dist/`, run again** → cache hit, no `dist/` restored, and `node server/dist/main.js` fails. Restore.
-3. **Run `npx turbo run test` directly** (bare, no root script) → observe that it addresses a different cache entry and enters watch mode. Kill it. This is OQ-1's caveat, observed rather than assumed.
-
-### Success criteria
-
-- [ ] `npm test` matches the C-5 baseline exactly
-- [ ] `npm run build`, `npm run typecheck`, `npm test` each report **two** package-tasks
-- [ ] `npm run dev` starts both processes; `localhost:5173/api/stats` returns 200 with a body identical to `:3000`
-- [ ] Root test command exits non-zero when a package suite fails
-- [ ] Server source edit → server cache miss
-- [ ] Fixture edit → **server** cache miss
-- [ ] Deleting both `dist/` then a cached build restores both, matching a cold build
-- [ ] `npx turbo --version` is 2.x
-- [ ] README documents the root interface, the per-package file-scoped idiom, and (if OQ-1 = document-only) the bare-`turbo run test` caveat
-- [ ] All three mutation observations performed, output reported, and every perturbed file restored
-
-### Controller review checklist
-
-- [ ] `git status` is clean apart from `README.md` — every perturbation in step 5 and the mutations must have been reverted. **A left-behind `__cachebust` in the fixture or a modified `turbo.json` is a failed task**, regardless of what the report says
-- [ ] Re-run (a), (e), (f) yourself — (e) is the one that justifies the whole `globalDependencies` design, and a reported-only result is not evidence
-- [ ] Confirm the baseline comparison used the recorded C-5 numbers, not numbers this task derived
-- [ ] Read the README diff: the root interface is documented, and the per-package idiom survived
-- [ ] Confirm mutation 1's output actually shows a **cache hit on the server task** — that is the failure mode being guarded, and a vague "cache behaved differently" is not proof
-
-### Commit (controller runs after review)
-
-```bash
-git add -- README.md
-git commit -m "Document the root command interface and its scoping caveats"
-```
-
-### Progress notes
-
-✅ Completed. Success criteria: MET (all 10). Files: README.md. **Verified by controller, independently
-re-run rather than accepted from the report:** suite matches C-5 exactly; `npm run dev` brought up both
-processes and `localhost:5173/api/stats` returned 200 with a body identical to `:3000`; root test exits 1 on
-a broken assertion and 0 after revert; deleting both `dist/` then taking a cache hit restored both with
-`server/dist/main.js` md5-identical to a cold build.
-**The decisive observation, reproduced by controller:** with `globalDependencies` present, a fixture edit
-gives `server:test: cache miss`; with it removed, the same edit gives `server:test: cache hit, replaying
-logs` — a stale green over a suite that is actually red. That is the concrete justification for C-4.
-Follow-up commit `b3827dc` resolved two Final Gate findings (restored the per-package `dev` escape hatch,
-fixed a misleading file-scoped test example) and corrected an over-broad watch-mode claim.
-
----
-
-## Wave 3 Summary
-
-**Status:** ✅ Complete — 1/1 task committed, plus one Final Gate follow-up.
-
-**Commits:** `1756525` (proving + README interface), `b3827dc` (Final Gate findings resolved)
-
-**Evidence captured — the observations no stand-in could produce:**
-- Fixture edit → `claude-usage-dashboard-server:test: cache miss` **with** `globalDependencies`;
-  `cache hit, replaying logs` **without** it, over a suite that was genuinely red. Reproduced by the
-  controller, not taken from the agent's report.
-- `npm run dev` → both processes; `:5173/api/stats` 200 with a body identical to `:3000`.
-- Cached `build` after `rm -rf` of both `dist/` restored both, md5-identical to a cold build.
-- Root test exit 1 on a broken package suite, 0 after revert.
-
----
-
-## Final Gate
-
-**Run 2026-08-02 against an isolated worktree at `b3827dc`.** The main checkout had by then acquired
-uncommitted work from a *different, concurrent session* (a shadcn/ui + Tailwind v4 install into `web/`), so
-measuring there would not have measured this run. HEAD was clean of it, so the gate ran in a throwaway
-worktree at HEAD with a fresh `npm install`.
-
-### 6a — controller checks
-
-| Check | Result |
+| Commit | Task |
 |---|---|
-| Full suite vs C-5 baseline | **server 8 files/76 tests, web 8 files/74 tests = 150** — identical to baseline. Run with `TURBO_FORCE=true`; both tasks reported `cache bypass, force executing`, so this is real execution, not a replay |
-| Type check | `Tasks: 2 successful, 2 total` |
-| Build | `Tasks: 2 successful, 2 total`; both `dist/` produced |
-| `git status --porcelain` | clean in the isolated worktree |
+| `f43cabc` | T1 — consolidate `server` and `web` into one npm workspace |
+| `9bc77d3` | T2 — add the server `dev` alias |
+| `0e5510c` | T3 — document the workspace install and per-package commands |
+| `51141c3` | T4 — note the dashboard run's install commands superseded |
+| `afc437d` | T5 — add the Turborepo task graph and root scripts (carries the C-2 amendment) |
+| `1756525` | T6 — document the root command interface and its caveats |
+| `b3827dc` | Final Gate — restore per-package dev commands, fix the file-scoped test example |
 
-Baseline was **green**, so every one of these is attributable to this run rather than inherited.
+**Amendments issued: 1.** C-2 — `devEngines.packageManager.version` `">=11.0.0"` → `"^11.0.0"`. Broadcast to
+both listed consumers. The most instructive event of the run: a value that passed its owner's verification
+(npm accepts unbounded ranges) and broke its consumer completely (turbo refuses to resolve the workspace).
+Origin was controller error — the range was authored into the plan and registry.
 
-### 6b — three reviewers over `73ecb02..HEAD`
+**Known hazard, documented not fixed:** `^11.0.0` will hard-fail every install when npm 12 ships. There is no
+unbounded alternative (a name-only field also breaks turbo), so the choice is the current hard guard or
+`onFail: "warn"` to make it advisory. Kept the hard guard. One-line change to flip.
 
-**Reviewer 1 — contract conformance.** All five contracts CONFORM in code. Confirmed independently:
-both `test` scripts still bare `vitest`; no `dependsOn` anywhere; C-2's keys survived Task 5's edit to the
-same file; `globalDependencies` names a path that exists and appears in `globalCacheInputs.files`. Its only
-divergences were in the *task document*, not the implementation — the amendment record was still uncommitted
-at review time. **Resolved:** committed.
+**Final Gate:** 3 reviewers. Zero defects found in the implementation. Two Important cross-task findings (both
+README, both resolved in `b3827dc`) and nine defects in the task document's own assertion scripts, of which
+five were material enough to fix — most seriously F1, an assertion that passed while the exact bug it existed
+to catch was occurring. Full detail in the Final Gate section.
 
-**Reviewer 2 — cross-task integration.** No Critical. Two Important, both at the Task 3 → Task 6 README seam,
-both **resolved in `b3827dc`**:
-1. Task 6's rewrite deleted the per-package `dev` escape hatch (`-w server` / `-w web`) with no replacement —
-   even though Task 2 added `server`'s `dev` script specifically to enable it. Restored.
-2. `npm test --prefix server -- run  # file-scoped: append a path` was not, as written, file-scoped — it ran
-   the whole 76-test suite. Now shows real paths.
-   Plus one Minor (two closing paragraphs restating each other) — merged.
+**Deviation from plan:** the plan scoped six install-command edits in the completed dashboard task doc; that
+was cut to a single superseded note, because the document is a finished historical record and rewriting its
+commands would make it describe a run that never happened (Decision 9).
 
-**Reviewer 3 — adversarial.** Ran isolated in its own worktree. Applied every mutation the controller had not
-spot-checked; **all were rejected structurally**. It found no defect in the implementation, but **nine
-defects in this document's own assertion scripts** — the run's safety margin. The most serious:
-
-- **F1 (critical).** Task 6 check (e) grepped for `cache miss` unqualified, which is satisfied by *web's*
-  legitimate miss while the server task replays a stale green. Under the mutation the loose grep exits 0
-  while the server suite is actually red (3 tests failing). **Fixed** — the assertion now names
-  `claude-usage-dashboard-server:test: cache miss` explicitly and exits non-zero otherwise.
-- **F3.** Task 6 check (b) used `grep -c` on turbo's output to prove both packages participate. Turbo prints
-  a "Packages in scope" banner regardless of what runs, and the pipe discards the exit code — deleting web's
-  `build` script gave a *passing* count and exit 0, the exact silent-skip failure Task 2 exists to prevent.
-  **Fixed** — now uses the `--dry=json` package list plus a real exit-code check, for all three tasks.
-- **F4.** Nothing asserted that `globalDependencies` names a path that *exists*. Moving the fixture away left
-  check (b) printing `C-4 OK` while turbo silently emptied `globalCacheInputs.files`, reinstating the stale-
-  replay bug. **Fixed** — existence is now asserted.
-- **F5.** C-1 calls "bare `vitest` in **both** packages" load-bearing, but the assertion checked web's script
-  for *presence* only. Setting `web.test = "vitest run"` passed while breaking the root command at runtime.
-  **Fixed** — web's value is now asserted.
-- **F7.** The Final Gate's own suite step could be satisfied entirely by a cache replay: turbo resolves its
-  cache to the main worktree root regardless of which worktree invokes it, so a plain `npm test` can report
-  `FULL TURBO` in 7ms by replaying an entry from a different checkout at a different commit. And `--` is
-  already consumed by `-- run`, so the root script cannot pass `--force` through. **Fixed** — the gate now
-  mandates `TURBO_FORCE=true`, which is how the run above was measured.
-- **F2.** Flagged the C-2 value as undocumented drift. Correct about HEAD at review time; the amendment
-  record existed but was uncommitted. **Its substantive point stands and is now documented:** `^11.0.0`
-  hard-fails every install when npm 12 ships. Investigated — there is no escape (an unbounded range and a
-  name-only field both break turbo outright), so the real choice is the current hard guard versus
-  `onFail: "warn"`. Kept the hard guard, matching what Task 1's mutation proved. Recorded in the plan.
-- **F6, F8, F9** (assertion hygiene: checks that signal failure only by a missing `echo`, a regex that cannot
-  see a commented command, an eyeball-only version check). **F9 fixed**; F6/F8 recorded below as follow-ups.
-
-Reviewer 3 also confirmed both CF notes: the `reflect-metadata` command is wrong as written (returns 3 on a
-*correct* install), and `npm ls --workspaces` exits 0 under its own mutation. It corrected one detail of CF-2
-— the `-> ./web` link does **not** disappear without a reinstall; the only signal is the `extraneous` marker.
-
-### 6c — resolution
-
-All Critical and Important findings resolved. Fixes went back to the authoring agent (`task-6`) rather than a
-fresh dispatch, and landed as a new commit (`b3827dc`), never as an amendment to a reviewed commit. 6a was
-re-run after the fixes, in isolation, and is the result recorded above.
-
-**Deliberately not fixed:** F6 and F8 are assertion-hygiene defects in this document. They cost nothing now
-(the run is complete and independently verified) and fixing them would be editing a record of what was
-actually run. Recorded as guidance for the next breakdown instead.
-
-## Repo-Memory Candidates
+**Environmental note:** partway through the Final Gate, the shared working tree acquired uncommitted changes
+from a **different, concurrent session** installing shadcn/ui + Tailwind v4 into `web/`. None of it was staged
+or committed by this run. Every contract was re-checked against it and all held — and the install in fact
+exercised the migration correctly, resolving web's new dependencies through the workspace into the single
+root lockfile. The Final Gate was then run in an isolated worktree at HEAD to measure this run rather than
+that work.
 
 _Filled in by `executing-task`; promote only after the run verifies them._
 
-- Whether `npm test --prefix <pkg> -- run <path>` survived the migration as the file-scoped test idiom (predicted yes — it is the reason C-3 forwards `run` rather than renaming the package scripts)
-- The `globalDependencies` requirement for the cross-package fixture — durable and non-obvious, worth recording if Task 6's observation confirms it
-- Whether a fresh git worktree needs its own root `npm install` after hoisting
+**Verified during this run — promote these:**
+
+- **`npm test --prefix <pkg> -- run <path>` survived the migration** and remains this repo's file-scoped test
+  command. Confirmed empirically (`src/stats/parser.test.ts` → 1 file/16 tests). The root `npm test` has **no**
+  file-scoped equivalent: a filter reaches both packages and the one not owning the file exits 1.
+- **`globalDependencies` is required for the cross-package fixture, and its absence fails silently.** The
+  server's tests read `web/src/api/__fixtures__/aggregate-stats.json`; without the declaration a fixture edit
+  produces `cache hit, replaying logs` on a suite that is actually red. Directly observed both ways.
+- **A fresh git worktree needs its own root `npm install`** — hoisted `node_modules` lives at the checkout
+  root. Confirmed when the Final Gate worktree started empty.
+- **Turborepo resolves its cache to the main worktree root regardless of which worktree invokes it.** A plain
+  `npm test` can therefore replay an entry produced in a different checkout at a different commit. Use
+  `TURBO_FORCE=true` for any run whose result must be real — the root script cannot pass `--force` through,
+  because `--` is consumed by `-- run`.
+- **`devEngines.packageManager.version` must be bounded to a single major** or Turborepo refuses to resolve
+  the workspace. The corollary is a maintenance obligation: the bound needs bumping when npm's major moves.
 
 ## Session-Memory Candidates
 
