@@ -14,6 +14,13 @@ wiki: false
 
 # Claude Code Usage Dashboard - Task Breakdown
 
+> **Superseded tooling note:** after this run completed, the repo moved to an npm workspace + Turborepo
+> monorepo (see [docs/plans/2026-08-01-turborepo-monorepo-tooling.md](../plans/2026-08-01-turborepo-monorepo-tooling.md)).
+> The historical install commands below that target `server`/`web` with a `--prefix` flag are a record of
+> what was actually run at the time and **must not be run** against the current tree; they would recreate
+> child lockfiles the migration removes. Use a root `npm install` instead. The historical test commands that
+> also use a `--prefix` flag are unaffected and still work as written.
+
 **Plan:** [docs/plans/2026-08-01-claude-usage-dashboard.md](../plans/2026-08-01-claude-usage-dashboard.md)
 **Branch:** feature/DASH-0000-claude-usage-dashboard — `executing-task` will not dispatch on any other branch
 **Started:** 2026-08-01
