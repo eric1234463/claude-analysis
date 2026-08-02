@@ -2,7 +2,7 @@
 type: task
 title: "Turborepo Monorepo Tooling — Task Breakdown"
 description: "Contract-first breakdown of the npm workspace consolidation and the Turborepo task graph layered on it, covering the root manifest, the server dev alias, the documentation reconciliation, and the empirical proving of the single-command dev flow."
-status: planned
+status: in_progress
 owner: "eric1234463@gmail.com"
 ticket: "DASH-0000"
 created: "2026-08-02"
@@ -16,6 +16,22 @@ wiki: false
 
 **Branch:** chore/DASH-0000-turborepo-monorepo-tooling
 **Source plan:** [`docs/plans/2026-08-01-turborepo-monorepo-tooling.md`](../plans/2026-08-01-turborepo-monorepo-tooling.md)
+
+## Test Baseline
+
+Captured at commit `73ecb02` (clean tree, before any agent ran):
+
+```
+server: 8 test files, 76 tests passing
+web:    8 test files, 74 tests passing
+```
+
+**Baseline is GREEN.** Any failure at the Final Gate is therefore attributable to this run, not
+inherited. All Final Gate suite comparisons are against this record.
+
+**OQ-1 resolved by default at dispatch:** document-only — no `CI=true` guard. C-3 stands exactly as
+written in the registry. Recorded per the task doc's own rule that an unanswered OQ-1 takes the
+documented default rather than blocking Task 5.
 
 ---
 
