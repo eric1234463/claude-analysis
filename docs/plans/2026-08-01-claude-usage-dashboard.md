@@ -2,11 +2,12 @@
 type: plan
 title: "Claude Code Usage Dashboard Implementation Plan"
 description: "Decides the architecture for a local NestJS + React dashboard that parses ~/.claude transcripts to visualize token, skill, and tool usage."
-status: draft
+status: completed
 owner: "eric1234463@gmail.com"
 ticket: "DASH-0000"
 created: "2026-08-01"
-tasks: []
+tasks:
+  - "docs/tasks/2026-08-01-claude-usage-dashboard-tasks.md"
 wiki: false
 ---
 
