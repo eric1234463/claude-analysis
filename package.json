@@ -2,9 +2,11 @@
   "name": "claude-usage-dashboard",
   "private": true,
   "version": "0.1.0",
-  "scripts": {
-    "server:install": "npm install --prefix server",
-    "server:test": "npm test --prefix server",
-    "server:dev": "npm run start:dev --prefix server"
+  "workspaces": ["server", "web"],
+  "devEngines": {
+    "packageManager": {
+      "name": "npm",
+      "version": ">=11.0.0"
+    }
   }
 }
