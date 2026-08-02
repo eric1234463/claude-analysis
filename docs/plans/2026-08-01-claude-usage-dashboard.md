@@ -168,11 +168,38 @@ Connect the dev proxy, run the real server against real transcripts, and perform
 
 ## Success Criteria
 
-- [ ] Dashboard renders all four pages from Eric's real transcript history with date-range and project filters working.
-- [ ] For one checked local day, dashboard token totals match a manual sum over that day's session and sidechain files, with subagent work counted exactly once; one tool count matches a manual grep.
-- [ ] Incremental refresh with ≤10 changed files completes in under 5 seconds.
-- [ ] A malformed or future-format transcript file never crashes the scan; parse failures and ignored line types are counted separately.
+_Ticked at the Final Gate on 2026-08-02 against `4a35c81..HEAD`. Task doc:
+`docs/tasks/2026-08-01-claude-usage-dashboard-tasks.md`._
 
+- [x] **Dashboard renders all four pages from Eric's real transcript history with date-range and project filters
+  working.** The API served a real 527-file, 26-day aggregate. A Critical defect that made every page render
+  blank on load — `App` passed empty-string date bounds, and `'YYYY-MM-DD' > ''` is `true`, so every day was
+  excluded — was found by the Final Gate and fixed at `c0bcc62`, locked by a test exercising the real filtering
+  layer. **Caveat: no browser was available, so the four rendered pages were never visually confirmed.**
+  Verification is end-to-end via `curl` through the Vite proxy plus 74 passing web tests. This is the one
+  criterion not verified in the manner it was written.
+- [x] **For one checked local day, token totals match a manual sum with subagent work counted exactly once; one
+  tool count matches a manual grep.** Day 2026-07-31 reconciled by **three independent implementations** — the
+  controller's own from-scratch script, Task 15's separate reimplementation, and the running API:
+  **78,336,733** tokens (59,946,368 main + 18,390,365 sidechain); Bash **239**, Read **153**, Edit **44**. All
+  exact. The controller's script read none of the project's source, so this is not the pipeline validating
+  itself.
+- [x] **Incremental refresh with ≤10 changed files completes in under 5 seconds.** Measured **46 ms** for the
+  second `POST /api/stats/refresh`. The cold scan of all 524 files took 2.69 s — well under the "tens of
+  seconds" this plan assumed.
+- [x] **A malformed or future-format transcript file never crashes the scan; parse failures and ignored line
+  types are counted separately.** Fixture locks `malformedLines: 3` versus `ignoredLines: 5`, including a torn
+  unterminated final line. On real data `malformedLines` is 0 and `ignoredLines` is 33,187, so the split is
+  load-bearing; because the parser uses an allow-list of processed types, a future Claude Code line type
+  degrades to *ignored*, never to *malformed*.
+
+**Also delivered beyond the criteria**, at the user's request once the Final Gate surfaced them as plan
+requirements the breakdown had silently narrowed: the four-way token-type stack on Overview (`802e38b`), per-day
+cache-hit and tool-error trends on Efficiency (`b1aaa2c`), and a refresh control plus data-quality header
+(`c06b0c8`).
+
+**Read-only guarantee verified independently:** a 523-file manifest captured before any real-data run and diffed
+afterward showed exactly three changed files, all of them this session's own Claude Code conversation logs.
 ## References
 
 - `docs/ideas/2026-08-01-claude-usage-dashboard-idea.md` — validated idea and stack decision record
