@@ -2,7 +2,7 @@
 type: task
 title: "Turborepo Monorepo Tooling — Task Breakdown"
 description: "Contract-first breakdown of the npm workspace consolidation and the Turborepo task graph layered on it, covering the root manifest, the server dev alias, the documentation reconciliation, and the empirical proving of the single-command dev flow."
-status: in_progress
+status: completed
 owner: "eric1234463@gmail.com"
 ticket: "DASH-0000"
 created: "2026-08-02"
@@ -131,7 +131,7 @@ Two properties are load-bearing and must not change: **`test` stays bare `vitest
 
 ```json
 "workspaces": ["server", "web"],
-"devEngines": { "packageManager": { "name": "npm", "version": ">=11.0.0" } }
+"devEngines": { "packageManager": { "name": "npm", "version": "^11.0.0" } }
 ```
 
 and **no** `server:install` / `server:test` / `server:dev` scripts. Exactly one lockfile exists, at `./package-lock.json`; none under `server/` or `web/`.
@@ -208,7 +208,40 @@ _None yet. The controller records amendments here by contract ID, with the date,
 
 | ID | Date | Change | Consumers notified |
 |----|------|--------|--------------------|
-| —  | —    | —      | —                  |
+| **C-2** | 2026-08-02 | `devEngines.packageManager.version` changed from `">=11.0.0"` to `"^11.0.0"` | Task 5 (live, applied it), Task 6 (amended text pasted at dispatch) |
+
+### C-2 amendment — detail
+
+**Reported by** agent `task-5` during Wave 2 verification, as an AMEND request rather than a unilateral fix.
+The agent was correct to refuse: the field belongs to C-2, owned by the already-committed Task 1.
+
+**What was wrong.** The registry authored the range unbounded. Turborepo 2.10.8 validates
+`devEngines.packageManager` against the devEngines spec, which requires the range to be bounded to a single
+major, and rejects an open-ended one at *workspace-resolution time* — before any task graph is built:
+
+```
+invalid_dev_engines_package_manager_field
+x Could not resolve workspace.
+`-> `devEngines.packageManager.version` must only allow versions within one major version
+```
+
+**Blast radius.** Total, and not confined to the check that surfaced it. Every `turbo run <task>` failed, so
+`npm run dev`/`build`/`test`/`typecheck` would all have been dead the moment `turbo.json` existed — while
+Wave 1's own verification passed cleanly, because npm itself accepts the unbounded range. This is precisely
+the failure mode a frozen registry is meant to surface: a value that satisfies its owner's tests and breaks
+its consumer's.
+
+**Controller verification before deciding** (not taken on the agent's word): reproduced the failure with
+`>=11.0.0`; confirmed `^11.0.0` makes `turbo run typecheck --dry=json` resolve; confirmed npm still resolves
+both workspaces; confirmed the guard still fires on a wrong manager (`name: "pnpm"` → `EBADDEVENGINES`), so
+the amendment preserves C-2's protective intent rather than just silencing the error.
+
+**Why not escalated to the user.** It does not invalidate Task 1 — the consolidation, the lockfile, and both
+suites remain correct — and it changes no architecture. It is a one-line value correction with a single
+defensible answer, carried by Task 5's commit rather than by rewriting history.
+
+**Origin.** Controller error. The unbounded range was authored into the plan and the registry, not introduced
+by any agent.
 
 ---
 
@@ -293,7 +326,7 @@ One resolution detail matters more than it looks: no file under `server/` import
 
 ```json
 "workspaces": ["server", "web"],
-"devEngines": { "packageManager": { "name": "npm", "version": ">=11.0.0" } }
+"devEngines": { "packageManager": { "name": "npm", "version": "^11.0.0" } }
 ```
 
 and **no** `server:install` / `server:test` / `server:dev` scripts. Exactly one lockfile, at `./package-lock.json`; none under `server/` or `web/`.
@@ -480,6 +513,8 @@ for (const k of ['dev','build','test','typecheck']) {
   if (!s[k]) throw new Error('server missing C-1 script: ' + k);
   if (!web[k]) throw new Error('web missing C-1 script: ' + k);
 }
+// C-1 names 'bare vitest in BOTH packages' load-bearing — assert web's VALUE, not just presence.
+if (web.test !== 'vitest') throw new Error('web test must stay bare vitest, got: ' + web.test);
 console.log('C-1 OK — both packages expose dev, build, test, typecheck');
 "
 ```
@@ -749,7 +784,10 @@ resolved versions: typescript@5.9.3, vitest@4.1.10, vite@8.2.0, reflect-metadata
 
 **Commits:** `f43cabc` T1 · `9bc77d3` T2 · `0e5510c` T3 · `51141c3` T4
 
-**Amendments issued:** none. No agent requested one; all four contracts (C-1, C-2, C-5) conformed as written.
+**Amendments issued during Wave 1:** none. **But C-2 was amended in Wave 2** — Task 5 found that the
+`devEngines.packageManager.version` value Wave 1 committed breaks every turbo invocation. Wave 1's own
+verification could not have caught it: npm accepts the unbounded range, and nothing in Wave 1 runs turbo.
+See the Amendments table. Do not read this line as "C-2 was correct".
 
 **Systemic signals watched for:** none fired. The four tasks touched disjoint files with no shared convention
 between them, and no two agents reported the same surprise. The one cross-cutting constraint — "run no npm
@@ -787,7 +825,7 @@ One task. Dispatches only after Wave 1 is committed.
 
 ## Task 5: Add the Turborepo task graph and root scripts
 
-**Status:** ⬜ Not Started
+**Status:** ✅ Completed
 **Phase:** 2 · **Wave:** 2 · **Same agent as Task 1**
 **Provides:** C-3, C-4
 **Consumes:** C-1 (owner Task 2), C-2 (owner Task 1)
@@ -860,7 +898,7 @@ Each script invokes **exactly one** turbo task — `turbo run build test -- <arg
 
 ```bash
 # a. Installed major matches the config's semantics
-npx turbo --version                     # expect: 2.x
+npx turbo --version | grep -q '^2\.' || { echo "FAIL: turbo is not 2.x"; exit 1; }
 
 # b. C-4's exact shape
 node -e "
@@ -870,6 +908,10 @@ if(t.tasks.dev.persistent!==true||t.tasks.dev.cache!==false) throw new Error('de
 if(JSON.stringify(t.tasks.build.outputs)!==JSON.stringify(['dist/**'])) throw new Error('build outputs wrong: '+JSON.stringify(t.tasks.build.outputs));
 for(const k of ['test','typecheck']) if(Object.keys(t.tasks[k]).length!==0) throw new Error(k+' must declare nothing');
 const s=JSON.stringify(t); if(s.includes('dependsOn')) throw new Error('dependsOn must not appear');
+// A globalDependencies path that does not exist degrades SILENTLY: turbo emits no warning and
+// globalCacheInputs.files goes empty, reinstating the stale-replay bug. Assert existence.
+const fs=require('fs');
+for(const g of t.globalDependencies) if(!fs.existsSync(g)) throw new Error('globalDependencies path does not exist: '+g);
 console.log('C-4 OK');
 "
 
@@ -879,7 +921,8 @@ const p=require('./package.json');
 const want={dev:'turbo run dev',build:'turbo run build',test:'turbo run test -- run',typecheck:'turbo run typecheck'};
 for(const [k,v] of Object.entries(want)) if(p.scripts[k]!==v) throw new Error(k+': '+p.scripts[k]);
 if(JSON.stringify(p.workspaces)!==JSON.stringify(['server','web'])) throw new Error('C-2 workspaces lost');
-if(!p.devEngines?.packageManager) throw new Error('C-2 devEngines lost');
+const dm=p.devEngines?.packageManager;
+if(dm?.name!=='npm'||dm?.version!=='^11.0.0') throw new Error('C-2 devEngines drifted: '+JSON.stringify(dm));
 if(!p.devDependencies?.turbo) throw new Error('turbo not a root devDependency');
 console.log('C-3 OK, C-2 preserved');
 "
@@ -936,15 +979,27 @@ git commit -m "Add the Turborepo task graph and root scripts"
 
 ### Progress notes
 
-_—_
+✅ Completed. Success criteria: MET (all 8). Files: turbo.json (created), package.json, package-lock.json,
+.gitignore. **Verified by controller:** C-4 shape OK; C-3 scripts exact and amended C-2 preserved;
+`npx turbo run typecheck --dry=json` resolves to exactly both packages; `.turbo` ignored at nested depth.
+**Mutations 1 and 6 proved by controller** — deleting `globalDependencies` throws, and reverting the
+amendment reproduces `invalid_dev_engines_package_manager_field`. Commit: afc437d.
+**This task raised the run's only amendment (C-2)** and correctly refused to fix a contract it did not own.
+Lockfile diff adds only `turbo` and its platform binaries — no re-resolution of the tree.
 
 ---
 
 ## Wave 2 Summary
 
-**Status:** ⬜ Not Started
+**Status:** ✅ Complete — 1/1 task committed.
 
-_Commits, amendments, deviations: —_
+**Commit:** `afc437d`
+
+**Amendment issued:** **C-2** — `devEngines.packageManager.version` `">=11.0.0"` → `"^11.0.0"`. See the
+Amendments table for the full record. This is the run's single most instructive event: a contract value that
+passed its *owner's* verification cleanly (npm accepts an unbounded range) and broke its *consumer* totally
+(turbo refuses to resolve the workspace at all). Wave 1 could not have caught it — nothing in Wave 1 runs
+turbo. The agent reported it rather than fixing it, which is exactly what a frozen registry is for.
 
 ---
 
@@ -956,7 +1011,7 @@ One task. Dispatches only after Wave 2 is committed.
 
 ## Task 6: Prove the single-command flow and cache correctness
 
-**Status:** ⬜ Not Started
+**Status:** ✅ Completed
 **Phase:** 3 · **Wave:** 3 · **Same agent as Task 3**
 **Provides:** none
 **Consumes:** C-1 (owner Task 2), C-2 (owner Task 1), C-3 (owner Task 5), C-4 (owner Task 5), C-5 (owner Task 1)
@@ -1003,8 +1058,18 @@ Two properties of the cache make naive checks lie, and you must respect both:
 npm test 2>&1 | tail -20
 
 # b. Both packages participate
-npm run build     2>&1 | grep -c "claude-usage-dashboard-\(server\|web\)"   # expect: >= 2
-npm run typecheck 2>&1 | grep -c "claude-usage-dashboard-\(server\|web\)"   # expect: >= 2
+# `grep -c` on the output is NOT a valid participation check: turbo prints a
+# "Packages in scope: server, web" banner regardless of what actually runs, and a pipe discards
+# the exit code. Deleting web's `build` script yields a passing count AND exit 0.
+for t in build typecheck test; do
+  npx turbo run "$t" --dry=json | node -e "
+    let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
+      const pk=JSON.parse(s).tasks.map(x=>x.package).sort();
+      if(JSON.stringify(pk)!==JSON.stringify(['claude-usage-dashboard-server','claude-usage-dashboard-web']))
+        {console.error('resolved to: '+pk);process.exit(1)}
+      console.log('both packages');});"
+done
+npm run build >/dev/null 2>&1 || { echo "FAIL: build exited non-zero"; exit 1; }
 
 # c. Proxy path (with `npm run dev` running in another shell)
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost:5173/api/stats     # expect: 200
@@ -1016,8 +1081,12 @@ npm test; echo "exit=$?"                                                     # e
 # e. Fixture invalidation — the observation globalDependencies exists for
 npm test >/dev/null 2>&1                                                     # warm the cache
 node -e "const f='web/src/api/__fixtures__/aggregate-stats.json',fs=require('fs'),j=JSON.parse(fs.readFileSync(f,'utf8'));j.__cachebust=1;fs.writeFileSync(f,JSON.stringify(j,null,2));console.log('fixture modified')"
-npm test 2>&1 | grep -i "cache miss\|cache bypass"
-# expect: the SERVER task reports a miss, not only web
+# Must name the SERVER task explicitly. A bare `grep -i "cache miss"` is satisfied by WEB's
+# legitimate miss while the server task replays a stale green — which is the exact bug this
+# observation exists to disprove. Verified: with globalDependencies deleted, the loose grep
+# matches and exits 0 while the server suite is actually red (3 tests failing).
+npm test 2>&1 | grep -q "claude-usage-dashboard-server:test: cache miss" \
+  || { echo "FAIL: server task did not miss on a fixture edit"; exit 1; }
 git checkout -- web/src/api/__fixtures__/aggregate-stats.json
 
 # f. Cached build still restores artifacts
@@ -1065,33 +1134,113 @@ git commit -m "Document the root command interface and its scoping caveats"
 
 ### Progress notes
 
-_—_
+✅ Completed. Success criteria: MET (all 10). Files: README.md. **Verified by controller, independently
+re-run rather than accepted from the report:** suite matches C-5 exactly; `npm run dev` brought up both
+processes and `localhost:5173/api/stats` returned 200 with a body identical to `:3000`; root test exits 1 on
+a broken assertion and 0 after revert; deleting both `dist/` then taking a cache hit restored both with
+`server/dist/main.js` md5-identical to a cold build.
+**The decisive observation, reproduced by controller:** with `globalDependencies` present, a fixture edit
+gives `server:test: cache miss`; with it removed, the same edit gives `server:test: cache hit, replaying
+logs` — a stale green over a suite that is actually red. That is the concrete justification for C-4.
+Follow-up commit `b3827dc` resolved two Final Gate findings (restored the per-package `dev` escape hatch,
+fixed a misleading file-scoped test example) and corrected an over-broad watch-mode claim.
 
 ---
 
 ## Wave 3 Summary
 
-**Status:** ⬜ Not Started
+**Status:** ✅ Complete — 1/1 task committed, plus one Final Gate follow-up.
 
-_Commits, deviations, evidence captured: —_
+**Commits:** `1756525` (proving + README interface), `b3827dc` (Final Gate findings resolved)
+
+**Evidence captured — the observations no stand-in could produce:**
+- Fixture edit → `claude-usage-dashboard-server:test: cache miss` **with** `globalDependencies`;
+  `cache hit, replaying logs` **without** it, over a suite that was genuinely red. Reproduced by the
+  controller, not taken from the agent's report.
+- `npm run dev` → both processes; `:5173/api/stats` 200 with a body identical to `:3000`.
+- Cached `build` after `rm -rf` of both `dist/` restored both, md5-identical to a cold build.
+- Root test exit 1 on a broken package suite, 0 after revert.
 
 ---
 
 ## Final Gate
 
-Run once, after Wave 3 commits.
+**Run 2026-08-02 against an isolated worktree at `b3827dc`.** The main checkout had by then acquired
+uncommitted work from a *different, concurrent session* (a shadcn/ui + Tailwind v4 install into `web/`), so
+measuring there would not have measured this run. HEAD was clean of it, so the gate ran in a throwaway
+worktree at HEAD with a fresh `npm install`.
 
-1. **Full suite against the C-5 baseline** — `npm test` from the root; counts must match the Wave 1 Summary record.
-2. **Type check** — `npm run typecheck`; both packages, exit 0.
-3. **Build** — `npm run build`; both packages, exit 0, both `dist/` present.
-4. **Review team over the whole run diff** (`git diff main...HEAD`), covering:
-   - **Contract conformance** — every `Provides` in a task block matches its registry entry character for character on signature, key names, and declared behavior; C-2's keys survived Task 5's edit to the same file.
-   - **Cross-task integration** — the four C-1 script names exist in both packages; C-3's scripts address C-4's tasks; `globalDependencies` names a path that actually exists.
-   - **Adversarial** — re-run one named mutation from each task and confirm the stated check fails. The per-task mutation proofs were the agents' own claims; this is the independent check.
-5. **Scope audit** — the whole run diff should touch only: `package.json`, `package-lock.json`, `server/package.json` (one added line), `server/package-lock.json` (deleted), `web/package-lock.json` (deleted), `turbo.json`, `.gitignore`, `README.md`, and one note in the dashboard task doc. **Anything under `server/src`, `web/src`, `server/test`, or either package's Vitest/Vite/tsconfig configuration is out of scope and must be justified or reverted.**
-6. **Tick the plan's Success Criteria** with evidence, in `docs/plans/2026-08-01-turborepo-monorepo-tooling.md`.
+### 6a — controller checks
 
----
+| Check | Result |
+|---|---|
+| Full suite vs C-5 baseline | **server 8 files/76 tests, web 8 files/74 tests = 150** — identical to baseline. Run with `TURBO_FORCE=true`; both tasks reported `cache bypass, force executing`, so this is real execution, not a replay |
+| Type check | `Tasks: 2 successful, 2 total` |
+| Build | `Tasks: 2 successful, 2 total`; both `dist/` produced |
+| `git status --porcelain` | clean in the isolated worktree |
+
+Baseline was **green**, so every one of these is attributable to this run rather than inherited.
+
+### 6b — three reviewers over `73ecb02..HEAD`
+
+**Reviewer 1 — contract conformance.** All five contracts CONFORM in code. Confirmed independently:
+both `test` scripts still bare `vitest`; no `dependsOn` anywhere; C-2's keys survived Task 5's edit to the
+same file; `globalDependencies` names a path that exists and appears in `globalCacheInputs.files`. Its only
+divergences were in the *task document*, not the implementation — the amendment record was still uncommitted
+at review time. **Resolved:** committed.
+
+**Reviewer 2 — cross-task integration.** No Critical. Two Important, both at the Task 3 → Task 6 README seam,
+both **resolved in `b3827dc`**:
+1. Task 6's rewrite deleted the per-package `dev` escape hatch (`-w server` / `-w web`) with no replacement —
+   even though Task 2 added `server`'s `dev` script specifically to enable it. Restored.
+2. `npm test --prefix server -- run  # file-scoped: append a path` was not, as written, file-scoped — it ran
+   the whole 76-test suite. Now shows real paths.
+   Plus one Minor (two closing paragraphs restating each other) — merged.
+
+**Reviewer 3 — adversarial.** Ran isolated in its own worktree. Applied every mutation the controller had not
+spot-checked; **all were rejected structurally**. It found no defect in the implementation, but **nine
+defects in this document's own assertion scripts** — the run's safety margin. The most serious:
+
+- **F1 (critical).** Task 6 check (e) grepped for `cache miss` unqualified, which is satisfied by *web's*
+  legitimate miss while the server task replays a stale green. Under the mutation the loose grep exits 0
+  while the server suite is actually red (3 tests failing). **Fixed** — the assertion now names
+  `claude-usage-dashboard-server:test: cache miss` explicitly and exits non-zero otherwise.
+- **F3.** Task 6 check (b) used `grep -c` on turbo's output to prove both packages participate. Turbo prints
+  a "Packages in scope" banner regardless of what runs, and the pipe discards the exit code — deleting web's
+  `build` script gave a *passing* count and exit 0, the exact silent-skip failure Task 2 exists to prevent.
+  **Fixed** — now uses the `--dry=json` package list plus a real exit-code check, for all three tasks.
+- **F4.** Nothing asserted that `globalDependencies` names a path that *exists*. Moving the fixture away left
+  check (b) printing `C-4 OK` while turbo silently emptied `globalCacheInputs.files`, reinstating the stale-
+  replay bug. **Fixed** — existence is now asserted.
+- **F5.** C-1 calls "bare `vitest` in **both** packages" load-bearing, but the assertion checked web's script
+  for *presence* only. Setting `web.test = "vitest run"` passed while breaking the root command at runtime.
+  **Fixed** — web's value is now asserted.
+- **F7.** The Final Gate's own suite step could be satisfied entirely by a cache replay: turbo resolves its
+  cache to the main worktree root regardless of which worktree invokes it, so a plain `npm test` can report
+  `FULL TURBO` in 7ms by replaying an entry from a different checkout at a different commit. And `--` is
+  already consumed by `-- run`, so the root script cannot pass `--force` through. **Fixed** — the gate now
+  mandates `TURBO_FORCE=true`, which is how the run above was measured.
+- **F2.** Flagged the C-2 value as undocumented drift. Correct about HEAD at review time; the amendment
+  record existed but was uncommitted. **Its substantive point stands and is now documented:** `^11.0.0`
+  hard-fails every install when npm 12 ships. Investigated — there is no escape (an unbounded range and a
+  name-only field both break turbo outright), so the real choice is the current hard guard versus
+  `onFail: "warn"`. Kept the hard guard, matching what Task 1's mutation proved. Recorded in the plan.
+- **F6, F8, F9** (assertion hygiene: checks that signal failure only by a missing `echo`, a regex that cannot
+  see a commented command, an eyeball-only version check). **F9 fixed**; F6/F8 recorded below as follow-ups.
+
+Reviewer 3 also confirmed both CF notes: the `reflect-metadata` command is wrong as written (returns 3 on a
+*correct* install), and `npm ls --workspaces` exits 0 under its own mutation. It corrected one detail of CF-2
+— the `-> ./web` link does **not** disappear without a reinstall; the only signal is the `extraneous` marker.
+
+### 6c — resolution
+
+All Critical and Important findings resolved. Fixes went back to the authoring agent (`task-6`) rather than a
+fresh dispatch, and landed as a new commit (`b3827dc`), never as an amendment to a reviewed commit. 6a was
+re-run after the fixes, in isolation, and is the result recorded above.
+
+**Deliberately not fixed:** F6 and F8 are assertion-hygiene defects in this document. They cost nothing now
+(the run is complete and independently verified) and fixing them would be editing a record of what was
+actually run. Recorded as guidance for the next breakdown instead.
 
 ## Repo-Memory Candidates
 

@@ -2,7 +2,7 @@
 type: plan
 title: "Turborepo Monorepo Tooling Implementation Plan"
 description: "Decides how to turn two independently-installed npm projects into a single npm workspace driven by Turborepo, so one root command starts both the NestJS server and the Vite web app."
-status: draft
+status: completed
 owner: "eric1234463@gmail.com"
 ticket: "DASH-0000"
 created: "2026-08-01"
@@ -230,14 +230,22 @@ Recorded so their absence is not mistaken for an oversight:
 
 ## Success Criteria
 
-- [ ] `npm install` at the repo root installs both packages, producing exactly one `package-lock.json` at the root and none under `server/` or `web/`.
-- [ ] A single root command starts both the Nest server and the Vite dev server, and `http://localhost:5173/api/stats` returns HTTP 200 with the same body as `http://localhost:3000/api/stats`.
-- [ ] Root `test` runs both suites, matches the baseline captured immediately before Phase 1, terminates, and exits non-zero when a package's suite is deliberately broken.
-- [ ] Root `build` and `typecheck` each report two package-tasks and exit 0.
-- [ ] Cache behavior is correct, not merely present — measured through the root scripts, with real content edits rather than `touch`: a server source edit misses; a `web/src/api/__fixtures__/aggregate-stats.json` edit misses **on the server task**; and a cached `build` after deleting both `dist/` directories restores them identically to a cold build.
-- [ ] Resolved dependency versions are unchanged from the pre-migration baseline, and exactly one `reflect-metadata` resolves in the hoisted tree.
-- [ ] The only package-script change in the entire diff is the added `dev` alias in `server/package.json`; no existing script definition is altered, and no file under `server/src`, `web/src`, `server/test`, or either package's Vitest/Vite/tsconfig configuration changes. The rest of the diff is confined to root `package.json`, `turbo.json`, `.gitignore`, lockfiles, `README.md`, and a one-line note atop the dashboard task doc.
-- [ ] `npm test --prefix server -- run <path>` still runs a single file, and `README.md` contains no `npm install --prefix`.
+_Ticked at the Final Gate, 2026-08-02, against an isolated worktree at `b3827dc` with `TURBO_FORCE=true`
+(a plain run can replay a cache entry from another checkout — see the task doc's Final Gate note)._
+
+- [x] **`npm install` at the repo root installs both packages, producing exactly one `package-lock.json` at the root and no per-package lockfile or `node_modules`.** Verified in a fresh worktree: `npm install` succeeded, `package-lock.json` present at root, absent under `server/` and `web/`.
+- [x] **A single root command starts both the Nest server and the Vite dev server, and `http://localhost:5173/api/stats` returns HTTP 200 with the same body as `http://localhost:3000/api/stats`.** `npm run dev` started both; both endpoints returned 200 and `diff` of the two bodies was empty.
+- [x] **Root `test` runs both suites, reports the baseline counts, terminates, and exits non-zero if either package fails.** 8 files/76 tests (server) + 8 files/74 tests (web) = 150, identical to the C-5 baseline. Exit 1 with a deliberately broken server assertion; exit 0 after revert.
+- [x] **Root `build` and `typecheck` run across both packages and exit 0; a repeat non-dev task run replays from cache instead of re-executing.** Both report `Tasks: 2 successful, 2 total`. Cache replay confirmed (`FULL TURBO`).
+- [x] **Cache behaviour is correct, not merely present.** Server source edit → server miss. **Fixture edit → server miss**, and with `globalDependencies` removed the same edit produced `cache hit, replaying logs` on a suite that was actually red — the failure this design prevents, observed directly. Deleting both `dist/` then taking a cache hit restored both, with `server/dist/main.js` md5-identical to a cold build.
+- [x] **Resolved dependency versions unchanged from baseline, and exactly one `reflect-metadata` resolves.** typescript@5.9.3, vitest@4.1.10, vite@8.2.0, reflect-metadata@0.2.2 — unchanged. One physical copy at `node_modules/reflect-metadata`.
+- [x] **The only package-script change is the added `dev` alias in `server/package.json`.** Confirmed by the conformance reviewer: nothing under `server/src`, `web/src`, `server/test`, or any Vitest/Vite/tsconfig file was touched by this run.
+- [x] **`npm test --prefix server -- run <path>` still runs a single file, and `README.md` contains no `npm install --prefix`.** `src/stats/parser.test.ts` → 1 file/16 tests. README count: 0.
+
+**One deviation from the plan as written, and one hazard the plan created.**
+
+- **Deviation:** the plan scoped six install-command edits in the completed dashboard task doc. That scope was cut to a single superseded note once it was clear the document is a finished historical record — editing its commands would have made it describe a run that never happened. Recorded as Decision 9.
+- **Hazard introduced by this plan, now documented:** C-2's `devEngines.packageManager.version` was authored as `">=11.0.0"`, which Turborepo rejects outright (`invalid_dev_engines_package_manager_field`) because the devEngines spec requires a single-major bound. Amended to `"^11.0.0"` mid-run. **Consequence to know:** installs will hard-fail when npm 12 ships, and the fix is a one-line bump. There is no unbounded alternative — a name-only field also breaks turbo — so the options are the current hard guard, or `onFail: "warn"` to downgrade it to advisory. Left as the hard guard, matching what Task 1's mutation proved.
 
 ## References
 
