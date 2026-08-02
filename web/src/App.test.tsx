@@ -8,6 +8,9 @@ import { App, type AppDeps } from './App';
 
 const stats = fixture as AggregateStats;
 
+/** Inside the fixture's day range (2026-07-09 / 2026-07-10), so the 7-day default covers it. */
+const NOW = new Date(2026, 6, 10);
+
 function fakes() {
   const seen: StatsFilter[] = [];
   // Differs in `projects`, a field genuinely unrendered by the header, so the
@@ -22,6 +25,7 @@ function fakes() {
     filterStats: vi.fn((_s: AggregateStats, f: StatsFilter) => { seen.push(f); return filtered; }),
     daySeries: vi.fn(() => series),
     refreshStats: vi.fn(async () => stats),
+    now: () => NOW,
   };
   return { deps, seen, filtered, series };
 }
@@ -92,8 +96,31 @@ describe('App filtering delegates to the injected layer', () => {
   });
 });
 
+describe('App default date range', () => {
+  it('opens on the seven days ending today, and shows that range in the inputs', () => {
+    const { deps, seen } = fakes();
+    render(<App stats={stats} deps={deps} />);
+    expect(seen[0].from).toBe('2026-07-04');
+    expect(seen[0].to).toBe('2026-07-10');
+    expect((screen.getByLabelText('From') as HTMLInputElement).value).toBe('2026-07-04');
+    expect((screen.getByLabelText('To') as HTMLInputElement).value).toBe('2026-07-10');
+  });
+
+  it('does not slide the range forward when the clock advances mid-session', () => {
+    const { deps, seen } = fakes();
+    let current = NOW;
+    deps.now = () => current;
+    render(<App stats={stats} deps={deps} />);
+    current = new Date(2026, 6, 20);
+    fireEvent.click(screen.getByRole('button', { name: 'Tools' }));
+    const last = seen[seen.length - 1];
+    expect(last.from).toBe('2026-07-04');
+    expect(last.to).toBe('2026-07-10');
+  });
+});
+
 describe('App integration with the real filtering layer', () => {
-  it('renders the full unfiltered data on first render, with no dates entered', () => {
+  function renderReal(now: Date) {
     const realFilterStats = vi.fn(filterStats);
     const realDaySeries = vi.fn(daySeries);
     render(
@@ -103,13 +130,33 @@ describe('App integration with the real filtering layer', () => {
           filterStats: realFilterStats,
           daySeries: realDaySeries,
           refreshStats: vi.fn(async () => stats),
+          now: () => now,
         }}
       />,
     );
+    return { realFilterStats, realDaySeries };
+  }
+
+  it('renders the data inside the default range', () => {
+    const { realFilterStats, realDaySeries } = renderReal(NOW);
     const filtered = realFilterStats.mock.results[0].value as AggregateStats;
     const series = realDaySeries.mock.results[0].value as Array<{ day: string; counts: UsageCounts }>;
     expect(filtered.totals.tokens.total).toBe(27438);
     expect(series).toHaveLength(2);
+    expect(screen.getByTestId('page-overview')).toBeTruthy();
+  });
+
+  it('shows an empty state instead of empty charts when the range predates the data', () => {
+    renderReal(new Date(2026, 7, 2));
+    expect(screen.queryByTestId('page-overview')).toBeNull();
+    expect(screen.getByText(/no activity in this range/i)).toBeTruthy();
+  });
+
+  it('recovers from the empty state by clearing the range to all time', () => {
+    renderReal(new Date(2026, 7, 2));
+    fireEvent.click(screen.getByRole('button', { name: /show all time/i }));
+    expect(screen.getByTestId('page-overview')).toBeTruthy();
+    expect((screen.getByLabelText('From') as HTMLInputElement).value).toBe('');
   });
 });
 

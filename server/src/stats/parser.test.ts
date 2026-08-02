@@ -102,6 +102,34 @@ describe('token extraction and dedupe', () => {
   });
 });
 
+describe('skill attribution on token events', () => {
+  it('carries attributionSkill onto the token event, and leaves unattributed turns undefined', () => {
+    const byKey = new Map(tokens(parseMain().events).map((e) => [e.dedupeKey, e]));
+    // req_main_D is the only main-file turn that ran inside the skill.
+    expect(byKey.get('req_main_D')?.skill).toBe('brainstorming');
+    // The Skill tool_use itself (req_main_C) precedes the attribution window.
+    expect(byKey.get('req_main_C')?.skill).toBeUndefined();
+    expect(byKey.get('req_main_A')?.skill).toBeUndefined();
+  });
+
+  it('attributes sidechain turns, so a subagent spawned inside a skill counts toward it', () => {
+    expect(tokens(parseSide().events).every((e) => e.skill === 'brainstorming')).toBe(true);
+  });
+
+  it('reads attribution per line rather than inferring it from a neighbour', () => {
+    const line = (extra: string) =>
+      `{"type":"assistant","uuid":"u1","requestId":"r1","timestamp":"2026-07-09T02:00:00Z"${extra},`
+      + `"message":{"role":"assistant","model":"claude-opus-4-8","usage":{"output_tokens":1}}}`;
+    const parse = (extra: string) =>
+      tokens(parseTranscript(fileOf(MAIN_PATH, 'main'), [line(extra)], TZ).events)[0];
+
+    expect(parse(',"attributionSkill":"writing-plans"').skill).toBe('writing-plans');
+    expect(parse('').skill).toBeUndefined();
+    // An empty string is not a skill name.
+    expect(parse(',"attributionSkill":""').skill).toBeUndefined();
+  });
+});
+
 describe('line accounting', () => {
   it('splits parse failures from well-formed ignorable lines', () => {
     const main = parseMain();

@@ -44,6 +44,7 @@ describe('AGGREGATE_STATS_KEYS', () => {
         models: {},
         tools: {},
         skills: {},
+        skillTokens: {},
         agents: {},
       },
     };

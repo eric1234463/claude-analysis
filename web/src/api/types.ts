@@ -23,6 +23,10 @@ export interface UsageCounts {
   tools: Record<string, ToolCounts>;
   /** key is `${source}|${name}` */
   skills: Record<string, number>;
+  /** Tokens spent on turns that ran inside a skill, keyed on the **bare skill name**.
+   *  `attributionSkill` records no source, so unlike `skills` this cannot be split into
+   *  `skill-tool` / `slash-command` — one entry covers both trigger paths for a name. */
+  skillTokens: Record<string, TokenTotals>;
   agents: Record<string, AgentCounts>;
 }
 

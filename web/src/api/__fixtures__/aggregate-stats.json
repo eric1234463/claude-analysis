@@ -24,6 +24,9 @@
           "Skill": { "calls": 1, "errors": 0 }
         },
         "skills": { "skill-tool|brainstorming": 1, "slash-command|/context": 1 },
+        "skillTokens": {
+          "brainstorming": { "input": 4, "output": 160, "cacheRead": 21047, "cacheCreation": 6069, "total": 27280 }
+        },
         "agents": {
           "general-purpose": {
             "runs": 1,
@@ -47,6 +50,7 @@
         },
         "tools": {},
         "skills": {},
+        "skillTokens": {},
         "agents": {}
       }
     }
@@ -79,6 +83,9 @@
       "Skill": { "calls": 1, "errors": 0 }
     },
     "skills": { "skill-tool|brainstorming": 1, "slash-command|/context": 1 },
+    "skillTokens": {
+      "brainstorming": { "input": 4, "output": 160, "cacheRead": 21047, "cacheCreation": 6069, "total": 27280 }
+    },
     "agents": {
       "general-purpose": {
         "runs": 1,

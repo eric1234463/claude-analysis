@@ -35,6 +35,7 @@ function emptyCounts(): UsageCounts {
     models: {},
     tools: {},
     skills: {},
+    skillTokens: {},
     agents: {},
   };
 }
@@ -51,6 +52,10 @@ function addToCounts(counts: UsageCounts, event: UsageEvent): void {
       if (event.model !== SYNTHETIC) {
         const modelTotals = (counts.models[event.model] ??= emptyTokenTotals());
         addUsage(modelTotals, event.usage);
+      }
+      if (event.skill !== undefined) {
+        const skillTotals = (counts.skillTokens[event.skill] ??= emptyTokenTotals());
+        addUsage(skillTotals, event.usage);
       }
       if (event.isSidechain && event.agentType !== undefined) {
         const agentCounts = (counts.agents[event.agentType] ??= { runs: 0, tokens: emptyTokenTotals() });
@@ -103,6 +108,7 @@ function sortCounts(counts: UsageCounts): UsageCounts {
     models: sortRecord(counts.models),
     tools: sortRecord(counts.tools),
     skills: sortRecord(counts.skills),
+    skillTokens: sortRecord(counts.skillTokens),
     agents: sortRecord(counts.agents),
   };
 }

@@ -43,6 +43,25 @@ describe('filterStats', () => {
     expect(out.totals.agentRuns).toBe(0);
   });
 
+  it('carries skillTokens through the filter and drops it with its cell', () => {
+    expect(filterStats(stats, {}).totals.skillTokens).toStrictEqual({
+      brainstorming: { input: 4, output: 160, cacheRead: 21047, cacheCreation: 6069, total: 27280 },
+    });
+    expect(filterStats(stats, { projects: ['-fixture-project-two'] }).totals.skillTokens)
+      .toStrictEqual({});
+    expect(filterStats(stats, { from: '2030-01-01' }).totals.skillTokens).toStrictEqual({});
+  });
+
+  it('sums skillTokens across cells rather than overwriting one with another', () => {
+    const cell = stats.days['2026-07-09']['-fixture-project'];
+    const doubled: AggregateStats = {
+      ...stats,
+      days: { '2026-07-09': { '-a': cell, '-b': cell } },
+    };
+    expect(filterStats(doubled, {}).totals.skillTokens.brainstorming)
+      .toStrictEqual({ input: 8, output: 320, cacheRead: 42094, cacheCreation: 12138, total: 54560 });
+  });
+
   it('applies date and project together', () => {
     expect(
       Object.keys(filterStats(stats, { from: '2026-07-09', to: '2026-07-09',

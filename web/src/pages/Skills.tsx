@@ -1,13 +1,33 @@
+import { useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Legend, Tooltip, XAxis, YAxis } from 'recharts';
+import { Coins, Layers, Sparkles } from 'lucide-react';
 import type { AggregateStats, UsageCounts } from '../api/types';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  AXIS_LINE,
+  AXIS_TICK,
+  CHART_COLORS,
+  ChartCard,
+  GRID_PROPS,
+  LEGEND_PROPS,
+  StatCard,
+  TOOLTIP_PROPS,
+  truncateTick,
+} from '@/components/charts';
+import { formatCompact, formatNumber } from '@/lib/format';
 
 export interface PageProps {
   stats: AggregateStats;
   series: Array<{ day: string; counts: UsageCounts }>;
 }
-
-const CHART_WIDTH = 600;
-const CHART_HEIGHT = 300;
 
 /** Monday (UTC) of the ISO week containing `day` (a local-time calendar date, e.g. '2026-07-09'). */
 function weekKey(day: string): string {
@@ -16,8 +36,31 @@ function weekKey(day: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+const SEGMENT_GAP = { stroke: 'var(--card)', strokeWidth: 2 } as const;
+
+/** The columns the usage table can be ordered by. All sort descending. */
+type SortKey = 'invocations' | 'tokens';
+
+function SortableHead(props: { label: string; active: boolean; onClick: () => void }) {
+  const { label, active, onClick } = props;
+  return (
+    <TableHead className="text-right">
+      <button
+        type="button"
+        onClick={onClick}
+        aria-pressed={active}
+        className={`hover:text-foreground ${active ? 'text-foreground' : ''}`}
+      >
+        {label}
+        {active ? ' ↓' : ''}
+      </button>
+    </TableHead>
+  );
+}
+
 export function Skills(props: PageProps) {
   const { stats, series } = props;
+  const [sortBy, setSortBy] = useState<SortKey>('invocations');
 
   // Weekly trend of total skill invocations.
   const trendByWeek = new Map<string, number>();
@@ -50,9 +93,44 @@ export function Skills(props: PageProps) {
     if (!rowsByName.has(name)) rowsByName.set(name, { 'skill-tool': 0, 'slash-command': 0 });
     rowsByName.get(name)![source] = count;
   }
+  // Ranked by how often each name was used; name breaks ties so the order stays stable.
   const countData = [...rowsByName.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([name, counts]) => ({ name, ...counts }));
+    .map(([name, counts]) => ({ name, ...counts }))
+    .sort((a, b) =>
+      (b['skill-tool'] + b['slash-command']) - (a['skill-tool'] + a['slash-command'])
+      || a.name.localeCompare(b.name));
+
+  // Tokens spent inside each skill, keyed on the bare name — `attributionSkill` records no
+  // source, so unlike `counts.skills` these cannot be split by how the skill was triggered.
+  const tokensByName = new Map<string, { weight: number; total: number }>();
+  for (const { counts } of series) {
+    for (const [name, totals] of Object.entries(counts.skillTokens)) {
+      const prev = tokensByName.get(name) ?? { weight: 0, total: 0 };
+      // `weight` is output + cacheCreation: the skill's own footprint. Plain `total` is dominated
+      // by cacheRead, which scales with how long the session ran, not with what the skill did.
+      tokensByName.set(name, {
+        weight: prev.weight + totals.output + totals.cacheCreation,
+        total: prev.total + totals.total,
+      });
+    }
+  }
+
+  // Union of both: a name can be invoked without attributed tokens (built-ins are never
+  // attributed) and, across a filtered range, attributed without its invocation in view.
+  const usageRows = [...new Set([...rowsByName.keys(), ...tokensByName.keys()])]
+    .map((name) => {
+      const counts = rowsByName.get(name);
+      const tokens = tokensByName.get(name);
+      return {
+        name,
+        invocations: counts ? counts['skill-tool'] + counts['slash-command'] : 0,
+        weight: tokens?.weight ?? null,
+        total: tokens?.total ?? null,
+      };
+    })
+    .sort((a, b) =>
+      (sortBy === 'tokens' ? (b.weight ?? -1) - (a.weight ?? -1) : b.invocations - a.invocations)
+      || a.name.localeCompare(b.name));
 
   // Per-project skill counts, from stats.days directly (not series, so all projects are covered).
   const perProject = new Map<string, number>();
@@ -61,50 +139,183 @@ export function Skills(props: PageProps) {
       perProject.set(project, (perProject.get(project) ?? 0) + counts.skillInvocations);
     }
   }
-  const projectRows = [...perProject.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const projectRows = [...perProject.entries()]
+    .sort(([aName, aCount], [bName, bCount]) => bCount - aCount || aName.localeCompare(bName));
+
+  const totalInvocations = series.reduce((sum, { counts }) => sum + counts.skillInvocations, 0);
+  const attributedWeight = [...tokensByName.values()].reduce((sum, t) => sum + t.weight, 0);
 
   return (
-    <section data-testid="page-skills">
-      <h2>Skills</h2>
-
-      <div data-testid="chart-skill-trend">
-        <BarChart width={CHART_WIDTH} height={CHART_HEIGHT} data={trendData}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="week" />
-          <YAxis allowDecimals={false} />
-          <Tooltip />
-          <Bar dataKey="invocations" fill="#8884d8" />
-        </BarChart>
+    <section data-testid="page-skills" className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-3">
+        <StatCard
+          label="Invocations"
+          value={formatNumber(totalInvocations)}
+          hint="Across the selected range"
+          icon={Sparkles}
+        />
+        <StatCard
+          label="Distinct entries"
+          value={formatNumber(countData.length)}
+          hint="Skills and commands used at least once"
+          icon={Layers}
+        />
+        <StatCard
+          label="Skill tokens"
+          value={formatCompact(attributedWeight)}
+          valueTestId="stat-skill-tokens"
+          hint="Output + cache writes on turns inside a skill"
+          icon={Coins}
+        />
       </div>
 
-      <div data-testid="chart-skill-counts">
-        <BarChart width={CHART_WIDTH} height={CHART_HEIGHT} data={countData}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="name" />
-          <YAxis allowDecimals={false} />
-          <Tooltip />
-          <Legend />
-          <Bar dataKey="skill-tool" fill="#8884d8" />
-          <Bar dataKey="slash-command" fill="#82ca9d" />
-        </BarChart>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <ChartCard
+          testId="chart-skill-trend"
+          title="Invocations per week"
+          description="Binned to the Monday of each ISO week"
+        >
+          <BarChart data={trendData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+            <CartesianGrid {...GRID_PROPS} />
+            <XAxis dataKey="week" tick={AXIS_TICK} axisLine={AXIS_LINE} tickLine={false} />
+            <YAxis
+              tick={AXIS_TICK}
+              axisLine={false}
+              tickLine={false}
+              width={36}
+              allowDecimals={false}
+            />
+            <Tooltip {...TOOLTIP_PROPS} />
+            <Bar
+              dataKey="invocations"
+              name="Invocations"
+              fill={CHART_COLORS[0]}
+              radius={[4, 4, 0, 0]}
+              {...SEGMENT_GAP}
+            />
+          </BarChart>
+        </ChartCard>
+
+        <ChartCard
+          testId="chart-skill-counts"
+          title="Invocations by name"
+          description="Counted separately by how each was triggered"
+          height={Math.max(240, countData.length * 34)}
+        >
+          <BarChart
+            data={countData}
+            layout="vertical"
+            margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
+          >
+            <CartesianGrid {...GRID_PROPS} vertical horizontal={false} />
+            <XAxis
+              type="number"
+              tick={AXIS_TICK}
+              axisLine={false}
+              tickLine={false}
+              allowDecimals={false}
+            />
+            <YAxis
+              type="category"
+              dataKey="name"
+              tick={AXIS_TICK}
+              axisLine={false}
+              tickLine={false}
+              width={150}
+              tickFormatter={truncateTick}
+            />
+            <Tooltip {...TOOLTIP_PROPS} />
+            <Legend {...LEGEND_PROPS} />
+            <Bar
+              dataKey="skill-tool"
+              fill={CHART_COLORS[0]}
+              radius={[0, 4, 4, 0]}
+              {...SEGMENT_GAP}
+            />
+            <Bar
+              dataKey="slash-command"
+              fill={CHART_COLORS[2]}
+              radius={[0, 4, 4, 0]}
+              {...SEGMENT_GAP}
+            />
+          </BarChart>
+        </ChartCard>
       </div>
 
-      <table data-testid="table-skill-projects">
-        <thead>
-          <tr>
-            <th>Project</th>
-            <th>Skill invocations</th>
-          </tr>
-        </thead>
-        <tbody>
-          {projectRows.map(([project, count]) => (
-            <tr key={project}>
-              <td>{project}</td>
-              <td>{count}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <Card>
+        <CardHeader className="gap-1">
+          <CardTitle className="text-sm font-medium">Usage and cost by name</CardTitle>
+          <CardDescription className="text-xs">
+            Tokens are attributed to the skill that was active for the turn, subagents included.
+            Both trigger paths share one row — the attribution records no source.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="px-2">
+          <Table data-testid="table-skill-usage">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <SortableHead
+                  label="Invocations"
+                  active={sortBy === 'invocations'}
+                  onClick={() => setSortBy('invocations')}
+                />
+                <SortableHead
+                  label="Tokens"
+                  active={sortBy === 'tokens'}
+                  onClick={() => setSortBy('tokens')}
+                />
+                <TableHead className="text-right">Total w/ cache reads</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {usageRows.map((row) => (
+                <TableRow key={row.name}>
+                  <TableCell className="font-mono text-xs">{row.name}</TableCell>
+                  <TableCell className="tabular text-right">{row.invocations}</TableCell>
+                  <TableCell className="tabular text-right">
+                    {row.weight === null ? (
+                      <span className="text-muted-foreground">—</span>
+                    ) : (
+                      formatNumber(row.weight)
+                    )}
+                  </TableCell>
+                  <TableCell className="tabular text-right text-muted-foreground">
+                    {row.total === null ? '—' : formatNumber(row.total)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="gap-1">
+          <CardTitle className="text-sm font-medium">Invocations by project</CardTitle>
+          <CardDescription className="text-xs">
+            Every project in the selection, including those with none
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="px-2">
+          <Table data-testid="table-skill-projects">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Project</TableHead>
+                <TableHead className="text-right">Skill invocations</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {projectRows.map(([project, count]) => (
+                <TableRow key={project}>
+                  <TableCell className="font-mono text-xs">{project}</TableCell>
+                  <TableCell className="tabular text-right">{count}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </section>
   );
 }
