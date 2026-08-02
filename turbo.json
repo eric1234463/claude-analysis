@@ -1,0 +1,10 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "globalDependencies": ["web/src/api/__fixtures__/aggregate-stats.json"],
+  "tasks": {
+    "dev": { "cache": false, "persistent": true },
+    "build": { "outputs": ["dist/**"] },
+    "test": {},
+    "typecheck": {}
+  }
+}

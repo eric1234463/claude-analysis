@@ -2,11 +2,23 @@
   "name": "claude-usage-dashboard",
   "private": true,
   "version": "0.1.0",
-  "workspaces": ["server", "web"],
+  "workspaces": [
+    "server",
+    "web"
+  ],
   "devEngines": {
     "packageManager": {
       "name": "npm",
-      "version": ">=11.0.0"
+      "version": "^11.0.0"
     }
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "test": "turbo run test -- run",
+    "typecheck": "turbo run typecheck"
+  },
+  "devDependencies": {
+    "turbo": "^2.10.8"
   }
 }

@@ -2,6 +2,7 @@ node_modules/
 dist/
 .cache/
 *.log
+.turbo/
 
 # Claude Code agent worktrees and local state
 .claude/
