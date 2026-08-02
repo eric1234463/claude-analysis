@@ -1,6 +1,8 @@
 import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from 'recharts';
 import { Bot, CircleAlert, Gauge, Layers, Split } from 'lucide-react';
-import type { AggregateStats, UsageCounts } from '../api/types';
+import type { AggregateStats } from '../api/types';
+import type { SeriesPoint } from '../api/filterStats';
+import { GRANULARITY_NOUN, type Granularity } from '../api/granularity';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   AXIS_LINE,
@@ -18,7 +20,8 @@ import { formatCompact, formatNumber, formatPercent } from '@/lib/format';
 
 export interface PageProps {
   stats: AggregateStats;
-  series: Array<{ day: string; counts: UsageCounts }>;
+  series: SeriesPoint[];
+  granularity: Granularity;
 }
 
 const SEGMENT_GAP = { stroke: 'var(--card)', strokeWidth: 2 } as const;
@@ -33,9 +36,13 @@ function safeRatio(numerator: number, denominator: number): number {
   return (numerator / denominator) * 100;
 }
 
-export function cacheHitTrendData(series: Array<{ day: string; counts: UsageCounts }>) {
-  return series.map(({ day, counts }) => ({
-    day,
+/**
+ * Both trends divide *after* the bucket's counts were merged, so a week or month is weighted by
+ * volume rather than being the mean of its days' ratios — a quiet Sunday cannot swing the week.
+ */
+export function cacheHitTrendData(series: readonly SeriesPoint[]) {
+  return series.map(({ bucket, counts }) => ({
+    bucket,
     cacheHitRatio: safeRatio(
       counts.tokens.cacheRead,
       counts.tokens.input + counts.tokens.cacheRead + counts.tokens.cacheCreation,
@@ -43,9 +50,9 @@ export function cacheHitTrendData(series: Array<{ day: string; counts: UsageCoun
   }));
 }
 
-export function toolErrorTrendData(series: Array<{ day: string; counts: UsageCounts }>) {
-  return series.map(({ day, counts }) => ({
-    day,
+export function toolErrorTrendData(series: readonly SeriesPoint[]) {
+  return series.map(({ bucket, counts }) => ({
+    bucket,
     toolErrorRate: safeRatio(counts.toolErrors, counts.toolCalls),
   }));
 }
@@ -62,7 +69,7 @@ const percentAxis = {
   tickFormatter: (value: number) => `${value}%`,
 } as const;
 
-export function Efficiency({ stats, series }: PageProps) {
+export function Efficiency({ stats, series, granularity }: PageProps) {
   const { totals } = stats;
 
   const cacheHitRatio = formatPercent(
@@ -135,12 +142,12 @@ export function Efficiency({ stats, series }: PageProps) {
       <div className="grid gap-4 lg:grid-cols-2">
         <ChartCard
           testId="chart-cache-hit-trend"
-          title="Cache hit ratio per day"
+          title={`Cache hit ratio per ${GRANULARITY_NOUN[granularity]}`}
           description="Higher is cheaper"
         >
           <BarChart data={cacheHitTrend} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
             <CartesianGrid {...GRID_PROPS} />
-            <XAxis dataKey="day" tick={AXIS_TICK} axisLine={AXIS_LINE} tickLine={false} />
+            <XAxis dataKey="bucket" tick={AXIS_TICK} axisLine={AXIS_LINE} tickLine={false} />
             <YAxis {...percentAxis} />
             <Tooltip {...percentTooltip} />
             <Bar
@@ -156,12 +163,12 @@ export function Efficiency({ stats, series }: PageProps) {
 
         <ChartCard
           testId="chart-tool-error-trend"
-          title="Tool error rate per day"
+          title={`Tool error rate per ${GRANULARITY_NOUN[granularity]}`}
           description="Lower is better"
         >
           <BarChart data={toolErrorTrend} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
             <CartesianGrid {...GRID_PROPS} />
-            <XAxis dataKey="day" tick={AXIS_TICK} axisLine={AXIS_LINE} tickLine={false} />
+            <XAxis dataKey="bucket" tick={AXIS_TICK} axisLine={AXIS_LINE} tickLine={false} />
             <YAxis {...percentAxis} />
             <Tooltip {...percentTooltip} />
             <Bar

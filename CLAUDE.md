@@ -102,10 +102,26 @@ slash-command name can itself contain one.
 
 ### Frontend
 
-Single aggregate endpoint, all filtering client-side. `filterStats`/`daySeries`
+Single aggregate endpoint, all filtering client-side. `filterStats`/`usageSeries`
 (`web/src/api/filterStats.ts`) narrow by date range and project and re-derive `totals` and the index
-arrays; page components in `web/src/pages/` are pure functions of `{ stats, series }` and hold no
-fetching logic. `App` takes an optional `deps` bag (filter/series/refresh/`now`) so tests inject
+arrays; page components in `web/src/pages/` are pure functions of `{ stats, series, granularity }`
+and hold no fetching logic.
+
+Time-bucketed charts group at a granularity the user picks in the filter card — daily (default),
+weekly or monthly. `usageSeries(stats, granularity)` does the grouping once, keying each point by
+`bucket` (a day, an ISO-week Monday, or `YYYY-MM`) via `bucketKey` in `web/src/api/granularity.ts`;
+**pages must never re-bin a series themselves**, they plot the buckets they are handed and only read
+`granularity` for chart copy. `bucketKey` derives the week from the pre-bucketed *day key string*
+parsed at UTC midnight — still never from a timestamp, and never in the ambient zone. Rates
+(cache hit, tool error) divide after the bucket's counts are merged, so a week is weighted by volume
+rather than being the mean of its days' ratios.
+
+The Skills page shows **only skills you authored** — Claude Code's built-in skills and slash commands
+are excluded by the hand-kept denylist in `web/src/api/builtinSkills.ts`. Transcripts record no
+provenance for a skill name, so a denylist is the only option; it beats scanning the skills
+directories because a deleted skill should stay in the history. Consequence: the page must never read
+the pre-summed `counts.skillInvocations` (it includes built-ins) — every total is re-derived from the
+filtered `counts.skills`. `App` takes an optional `deps` bag (filter/series/refresh/`now`) so tests inject
 deterministic implementations.
 
 Styling is Tailwind v4 + shadcn/ui (new-york, `@` → `src`), **dark-only**: `web/src/index.css` holds

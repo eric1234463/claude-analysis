@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Legend, Tooltip, XAxis, YAxis } from 'recharts';
 import { Coins, Layers, Sparkles } from 'lucide-react';
-import type { AggregateStats, UsageCounts } from '../api/types';
+import type { AggregateStats } from '../api/types';
+import type { SeriesPoint } from '../api/filterStats';
+import { GRANULARITY_NOUN, type Granularity } from '../api/granularity';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Table,
@@ -23,20 +25,33 @@ import {
   truncateTick,
 } from '@/components/charts';
 import { formatCompact, formatNumber } from '@/lib/format';
+import { isPersonalSkill } from '../api/builtinSkills';
 
 export interface PageProps {
   stats: AggregateStats;
-  series: Array<{ day: string; counts: UsageCounts }>;
-}
-
-/** Monday (UTC) of the ISO week containing `day` (a local-time calendar date, e.g. '2026-07-09'). */
-function weekKey(day: string): string {
-  const d = new Date(day + 'T00:00:00Z');
-  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
-  return d.toISOString().slice(0, 10);
+  series: SeriesPoint[];
+  granularity: Granularity;
 }
 
 const SEGMENT_GAP = { stroke: 'var(--card)', strokeWidth: 2 } as const;
+
+/** Split a `${source}|${name}` key on the first '|' — a slash-command name can itself contain one. */
+function splitKey(key: string): { source: 'skill-tool' | 'slash-command'; name: string } {
+  const sep = key.indexOf('|');
+  return { source: key.slice(0, sep) as 'skill-tool' | 'slash-command', name: key.slice(sep + 1) };
+}
+
+/**
+ * Invocations in one cell, counting only skills you wrote. `counts.skillInvocations` is unusable
+ * here: it is pre-summed over every name, built-ins included, so it would disagree with the rows.
+ */
+function personalInvocations(skills: Record<string, number>): number {
+  let total = 0;
+  for (const [key, count] of Object.entries(skills)) {
+    if (isPersonalSkill(splitKey(key).name)) total += count;
+  }
+  return total;
+}
 
 /** The columns the usage table can be ordered by. All sort descending. */
 type SortKey = 'invocations' | 'tokens';
@@ -59,23 +74,22 @@ function SortableHead(props: { label: string; active: boolean; onClick: () => vo
 }
 
 export function Skills(props: PageProps) {
-  const { stats, series } = props;
+  const { stats, series, granularity } = props;
   const [sortBy, setSortBy] = useState<SortKey>('invocations');
 
-  // Weekly trend of total skill invocations.
-  const trendByWeek = new Map<string, number>();
-  for (const { day, counts } of series) {
-    const week = weekKey(day);
-    trendByWeek.set(week, (trendByWeek.get(week) ?? 0) + counts.skillInvocations);
-  }
-  const trendData = [...trendByWeek.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([week, invocations]) => ({ week, invocations }));
+  // Trend of total skill invocations, on whatever bucket the series was built at.
+  const trendData = series.map(({ bucket, counts }) => ({
+    bucket,
+    invocations: personalInvocations(counts.skills),
+  }));
 
   // Per-key counts, aggregated over the series. Key is `${source}|${name}` inside counts.skills.
+  // Claude Code's own skills and slash commands are dropped throughout this page — the tab is for
+  // the skills you wrote, and /context or /compact would otherwise dominate every ranking.
   const countsByKey = new Map<string, number>();
   for (const { counts } of series) {
     for (const [key, count] of Object.entries(counts.skills)) {
+      if (!isPersonalSkill(splitKey(key).name)) continue;
       countsByKey.set(key, (countsByKey.get(key) ?? 0) + count);
     }
   }
@@ -83,13 +97,11 @@ export function Skills(props: PageProps) {
   // stats.skills gives the sorted SkillKey[] naming every skill/command present in this selection.
   const rowsByName = new Map<string, { 'skill-tool': number; 'slash-command': number }>();
   for (const { name } of stats.skills) {
+    if (!isPersonalSkill(name)) continue;
     if (!rowsByName.has(name)) rowsByName.set(name, { 'skill-tool': 0, 'slash-command': 0 });
   }
   for (const [key, count] of countsByKey) {
-    // Split on the first '|' only: a slash-command name can itself contain '|'.
-    const sep = key.indexOf('|');
-    const source = key.slice(0, sep) as 'skill-tool' | 'slash-command';
-    const name = key.slice(sep + 1);
+    const { source, name } = splitKey(key);
     if (!rowsByName.has(name)) rowsByName.set(name, { 'skill-tool': 0, 'slash-command': 0 });
     rowsByName.get(name)![source] = count;
   }
@@ -105,6 +117,7 @@ export function Skills(props: PageProps) {
   const tokensByName = new Map<string, { weight: number; total: number }>();
   for (const { counts } of series) {
     for (const [name, totals] of Object.entries(counts.skillTokens)) {
+      if (!isPersonalSkill(name)) continue;
       const prev = tokensByName.get(name) ?? { weight: 0, total: 0 };
       // `weight` is output + cacheCreation: the skill's own footprint. Plain `total` is dominated
       // by cacheRead, which scales with how long the session ran, not with what the skill did.
@@ -115,8 +128,8 @@ export function Skills(props: PageProps) {
     }
   }
 
-  // Union of both: a name can be invoked without attributed tokens (built-ins are never
-  // attributed) and, across a filtered range, attributed without its invocation in view.
+  // Union of both: across a filtered range a skill can be invoked with its usage-bearing turns out
+  // of view, or carry attributed tokens whose invocation fell on an earlier day.
   const usageRows = [...new Set([...rowsByName.keys(), ...tokensByName.keys()])]
     .map((name) => {
       const counts = rowsByName.get(name);
@@ -136,13 +149,13 @@ export function Skills(props: PageProps) {
   const perProject = new Map<string, number>();
   for (const projects of Object.values(stats.days)) {
     for (const [project, counts] of Object.entries(projects)) {
-      perProject.set(project, (perProject.get(project) ?? 0) + counts.skillInvocations);
+      perProject.set(project, (perProject.get(project) ?? 0) + personalInvocations(counts.skills));
     }
   }
   const projectRows = [...perProject.entries()]
     .sort(([aName, aCount], [bName, bCount]) => bCount - aCount || aName.localeCompare(bName));
 
-  const totalInvocations = series.reduce((sum, { counts }) => sum + counts.skillInvocations, 0);
+  const totalInvocations = [...countsByKey.values()].reduce((sum, count) => sum + count, 0);
   const attributedWeight = [...tokensByName.values()].reduce((sum, t) => sum + t.weight, 0);
 
   return (
@@ -151,13 +164,15 @@ export function Skills(props: PageProps) {
         <StatCard
           label="Invocations"
           value={formatNumber(totalInvocations)}
+          valueTestId="stat-skill-invocations"
           hint="Across the selected range"
           icon={Sparkles}
         />
         <StatCard
           label="Distinct entries"
           value={formatNumber(countData.length)}
-          hint="Skills and commands used at least once"
+          valueTestId="stat-skill-distinct"
+          hint="Your skills used at least once"
           icon={Layers}
         />
         <StatCard
@@ -172,12 +187,12 @@ export function Skills(props: PageProps) {
       <div className="grid gap-4 lg:grid-cols-2">
         <ChartCard
           testId="chart-skill-trend"
-          title="Invocations per week"
-          description="Binned to the Monday of each ISO week"
+          title={`Invocations per ${GRANULARITY_NOUN[granularity]}`}
+          description="Your skills only, built-ins excluded"
         >
           <BarChart data={trendData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
             <CartesianGrid {...GRID_PROPS} />
-            <XAxis dataKey="week" tick={AXIS_TICK} axisLine={AXIS_LINE} tickLine={false} />
+            <XAxis dataKey="bucket" tick={AXIS_TICK} axisLine={AXIS_LINE} tickLine={false} />
             <YAxis
               tick={AXIS_TICK}
               axisLine={false}

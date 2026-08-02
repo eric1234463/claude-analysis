@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import fixture from './__fixtures__/aggregate-stats.json';
 import { AGGREGATE_STATS_KEYS, type AggregateStats } from './types';
-import { daySeries, filterStats } from './filterStats';
+import { usageSeries, filterStats } from './filterStats';
 
 const stats = fixture as AggregateStats;
 const zero = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, total: 0 };
@@ -103,17 +103,18 @@ describe('filterStats', () => {
     globalThis.Date = function () { throw new Error('filterStats must not construct a Date'); };
     try {
       expect(() => filterStats(stats, { from: '2026-07-09', to: '2026-07-10' })).not.toThrow();
-      expect(() => daySeries(stats)).not.toThrow();
+      // Day granularity short-circuits in bucketKey; week is the one that does calendar maths.
+      expect(() => usageSeries(stats, 'day')).not.toThrow();
     } finally {
       globalThis.Date = RealDate;
     }
   });
 });
 
-describe('daySeries', () => {
+describe('usageSeries', () => {
   it('is ascending by day and merges each day\'s project cells', () => {
-    const series = daySeries(stats);
-    expect(series.map((d) => d.day)).toStrictEqual(['2026-07-09', '2026-07-10']);
+    const series = usageSeries(stats, 'day');
+    expect(series.map((d) => d.bucket)).toStrictEqual(['2026-07-09', '2026-07-10']);
     expect(series[0].counts.tokens.total).toBe(27420);
     expect(series[0].counts.sessionsStarted).toBe(1);
     expect(series[1].counts.tokens.total).toBe(18);
@@ -129,7 +130,7 @@ describe('daySeries', () => {
         },
       },
     };
-    const series = daySeries(merged);
+    const series = usageSeries(merged, 'day');
     expect(series).toHaveLength(1);
     expect(series[0].counts.tokens.total).toBe(27438);
     expect(series[0].counts.sessionsStarted).toBe(2);
@@ -138,7 +139,7 @@ describe('daySeries', () => {
   });
 
   it('returns an empty array when there are no days', () => {
-    expect(daySeries({ ...stats, days: {} })).toStrictEqual([]);
+    expect(usageSeries({ ...stats, days: {} }, 'day')).toStrictEqual([]);
   });
 
   it('is ascending by day even when the source object\'s keys are inserted in descending order', () => {
@@ -149,6 +150,34 @@ describe('daySeries', () => {
         '2026-07-09': stats.days['2026-07-09'],
       },
     };
-    expect(daySeries(reversed).map((d) => d.day)).toStrictEqual(['2026-07-09', '2026-07-10']);
+    expect(usageSeries(reversed, 'day').map((d) => d.bucket)).toStrictEqual(['2026-07-09', '2026-07-10']);
+  });
+
+  it('collapses the two fixture days into one week bucket, summing their counts', () => {
+    const series = usageSeries(stats, 'week');
+    expect(series.map((d) => d.bucket)).toStrictEqual(['2026-07-06']);
+    // 27,420 on the 9th plus 18 on the 10th.
+    expect(series[0].counts.tokens.total).toBe(27438);
+    expect(series[0].counts.sessionsStarted).toBe(2);
+  });
+
+  it('collapses them into one month bucket keyed YYYY-MM', () => {
+    const series = usageSeries(stats, 'month');
+    expect(series.map((d) => d.bucket)).toStrictEqual(['2026-07']);
+    expect(series[0].counts.tokens.total).toBe(27438);
+  });
+
+  it('keeps days in different weeks apart, and orders the buckets ascending', () => {
+    const spread: AggregateStats = {
+      ...stats,
+      days: {
+        // A Thursday and the following Monday: same month, adjacent but distinct weeks.
+        '2026-07-13': stats.days['2026-07-10'],
+        '2026-07-09': stats.days['2026-07-09'],
+      },
+    };
+    expect(usageSeries(spread, 'week').map((d) => d.bucket))
+      .toStrictEqual(['2026-07-06', '2026-07-13']);
+    expect(usageSeries(spread, 'month').map((d) => d.bucket)).toStrictEqual(['2026-07']);
   });
 });

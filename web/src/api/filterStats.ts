@@ -1,4 +1,14 @@
 import type { AggregateStats, SkillKey, TokenTotals, UsageCounts } from './types';
+import { bucketKey, type Granularity } from './granularity';
+
+/**
+ * One point of a time series. `bucket` is a day key, the Monday of an ISO week, or a `YYYY-MM`
+ * month, depending on the granularity it was built at.
+ */
+export interface SeriesPoint {
+  bucket: string;
+  counts: UsageCounts;
+}
 
 export interface StatsFilter {
   from?: string;
@@ -121,8 +131,21 @@ export function filterStats(stats: AggregateStats, filter: StatsFilter): Aggrega
   };
 }
 
-export function daySeries(stats: AggregateStats): Array<{ day: string; counts: UsageCounts }> {
-  return Object.keys(stats.days)
-    .sort()
-    .map((day) => ({ day, counts: mergeUsageCounts(Object.values(stats.days[day])) }));
+/**
+ * Flattens `stats.days` into a sorted series, merging every project cell in a bucket into one.
+ * Bucket keys sort lexicographically whether they are days, week Mondays or months, so one sort
+ * serves all three granularities.
+ */
+export function usageSeries(stats: AggregateStats, granularity: Granularity): SeriesPoint[] {
+  const cellsByBucket = new Map<string, UsageCounts[]>();
+  for (const [day, projectCells] of Object.entries(stats.days)) {
+    const bucket = bucketKey(day, granularity);
+    const cells = cellsByBucket.get(bucket) ?? [];
+    cells.push(...Object.values(projectCells));
+    cellsByBucket.set(bucket, cells);
+  }
+
+  return [...cellsByBucket.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([bucket, cells]) => ({ bucket, counts: mergeUsageCounts(cells) }));
 }

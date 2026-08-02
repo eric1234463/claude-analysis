@@ -1,6 +1,8 @@
 import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from 'recharts';
 import { CircleAlert, Wrench } from 'lucide-react';
-import type { AggregateStats, UsageCounts } from '../api/types';
+import type { AggregateStats } from '../api/types';
+import type { SeriesPoint } from '../api/filterStats';
+import type { Granularity } from '../api/granularity';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -24,7 +26,9 @@ import { formatNumber } from '@/lib/format';
 
 export interface PageProps {
   stats: AggregateStats;
-  series: Array<{ day: string; counts: UsageCounts }>;
+  series: SeriesPoint[];
+  /** Part of the shared page contract. Nothing here is time-bucketed, so it goes unused. */
+  granularity: Granularity;
 }
 
 const SEGMENT_GAP = { stroke: 'var(--card)', strokeWidth: 2 } as const;

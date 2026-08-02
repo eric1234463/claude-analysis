@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import fixture from './api/__fixtures__/aggregate-stats.json';
 import type { AggregateStats, UsageCounts } from './api/types';
 import type { StatsFilter } from './api/filterStats';
-import { filterStats, daySeries } from './api/filterStats';
+import { filterStats, usageSeries } from './api/filterStats';
 import { App, type AppDeps } from './App';
 
 const stats = fixture as AggregateStats;
@@ -18,12 +18,12 @@ function fakes() {
   // the header now surfaces scannedFiles/generatedAt/ignoredLines/malformedLines
   // straight from the unfiltered stats.
   const filtered: AggregateStats = { ...stats, projects: ['-fixture-filtered-project'] };
-  const series: Array<{ day: string; counts: UsageCounts }> = [
-    { day: '2026-07-09', counts: stats.days['2026-07-09']['-fixture-project'] },
+  const series: Array<{ bucket: string; counts: UsageCounts }> = [
+    { bucket: '2026-07-09', counts: stats.days['2026-07-09']['-fixture-project'] },
   ];
   const deps: AppDeps = {
     filterStats: vi.fn((_s: AggregateStats, f: StatsFilter) => { seen.push(f); return filtered; }),
-    daySeries: vi.fn(() => series),
+    usageSeries: vi.fn(() => series),
     refreshStats: vi.fn(async () => stats),
     now: () => NOW,
   };
@@ -63,7 +63,7 @@ describe('App filtering delegates to the injected layer', () => {
     const { deps, filtered, series } = fakes();
     render(<App stats={stats} deps={deps} />);
     expect(deps.filterStats).toHaveBeenCalled();
-    expect(deps.daySeries).toHaveBeenCalledWith(filtered);
+    expect(deps.usageSeries).toHaveBeenCalledWith(filtered, 'day');
     expect(series).toHaveLength(1);
     // The mounted Overview page actually renders the filtered project name
     // (not the unfiltered one), proving the page received `filtered`.
@@ -96,6 +96,37 @@ describe('App filtering delegates to the injected layer', () => {
   });
 });
 
+describe('App granularity', () => {
+  it('opens on daily', () => {
+    const { deps } = fakes();
+    render(<App stats={stats} deps={deps} />);
+    expect((screen.getByLabelText('Group by') as HTMLSelectElement).value).toBe('day');
+  });
+
+  it('offers all three groupings', () => {
+    const { deps } = fakes();
+    render(<App stats={stats} deps={deps} />);
+    const options = [...(screen.getByLabelText('Group by') as HTMLSelectElement).options];
+    expect(options.map((o) => o.value)).toStrictEqual(['day', 'week', 'month']);
+    expect(options.map((o) => o.textContent)).toStrictEqual(['Daily', 'Weekly', 'Monthly']);
+  });
+
+  it('re-derives the series at the chosen granularity', () => {
+    const { deps, filtered } = fakes();
+    render(<App stats={stats} deps={deps} />);
+    fireEvent.change(screen.getByLabelText('Group by'), { target: { value: 'month' } });
+    expect(deps.usageSeries).toHaveBeenLastCalledWith(filtered, 'month');
+  });
+
+  it('carries the granularity into the page so its chart copy follows', () => {
+    const { deps } = fakes();
+    render(<App stats={stats} deps={deps} />);
+    expect(screen.getByText('Daily tokens')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Group by'), { target: { value: 'week' } });
+    expect(screen.getByText('Weekly tokens')).toBeTruthy();
+  });
+});
+
 describe('App default date range', () => {
   it('opens on the seven days ending today, and shows that range in the inputs', () => {
     const { deps, seen } = fakes();
@@ -122,25 +153,25 @@ describe('App default date range', () => {
 describe('App integration with the real filtering layer', () => {
   function renderReal(now: Date) {
     const realFilterStats = vi.fn(filterStats);
-    const realDaySeries = vi.fn(daySeries);
+    const realUsageSeries = vi.fn(usageSeries);
     render(
       <App
         stats={stats}
         deps={{
           filterStats: realFilterStats,
-          daySeries: realDaySeries,
+          usageSeries: realUsageSeries,
           refreshStats: vi.fn(async () => stats),
           now: () => now,
         }}
       />,
     );
-    return { realFilterStats, realDaySeries };
+    return { realFilterStats, realUsageSeries };
   }
 
   it('renders the data inside the default range', () => {
-    const { realFilterStats, realDaySeries } = renderReal(NOW);
+    const { realFilterStats, realUsageSeries } = renderReal(NOW);
     const filtered = realFilterStats.mock.results[0].value as AggregateStats;
-    const series = realDaySeries.mock.results[0].value as Array<{ day: string; counts: UsageCounts }>;
+    const series = realUsageSeries.mock.results[0].value as Array<{ bucket: string; counts: UsageCounts }>;
     expect(filtered.totals.tokens.total).toBe(27438);
     expect(series).toHaveLength(2);
     expect(screen.getByTestId('page-overview')).toBeTruthy();

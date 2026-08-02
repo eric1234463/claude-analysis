@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { AlertTriangle, Activity, RefreshCw } from 'lucide-react';
-import type { AggregateStats, UsageCounts } from './api/types';
-import type { StatsFilter } from './api/filterStats';
-import { filterStats as realFilterStats, daySeries as realDaySeries } from './api/filterStats';
+import type { AggregateStats } from './api/types';
+import type { SeriesPoint, StatsFilter } from './api/filterStats';
+import { filterStats as realFilterStats, usageSeries as realUsageSeries } from './api/filterStats';
+import { GRANULARITIES, GRANULARITY_LABELS, type Granularity } from './api/granularity';
 import { refreshStats as realRefreshStats } from './api/client';
 import { defaultDateRange } from './api/dateRange';
 import { Button } from '@/components/ui/button';
@@ -20,7 +21,7 @@ import { Efficiency } from './pages/Efficiency';
 
 export interface AppDeps {
   filterStats: (stats: AggregateStats, filter: StatsFilter) => AggregateStats;
-  daySeries: (stats: AggregateStats) => Array<{ day: string; counts: UsageCounts }>;
+  usageSeries: (stats: AggregateStats, granularity: Granularity) => SeriesPoint[];
   refreshStats: () => Promise<AggregateStats>;
   /** Injected so the default date range is deterministic under test. */
   now: () => Date;
@@ -41,7 +42,7 @@ const PAGES = [
 
 const PAGE_SUBTITLES: Record<(typeof PAGES)[number]['name'], string> = {
   Overview: 'Token volume, sessions and where they were spent.',
-  Skills: 'Which skills and slash commands you actually reach for.',
+  Skills: 'Which of your own skills you actually reach for. Claude Code built-ins are excluded.',
   Tools: 'Tool call volume and where calls fail.',
   Efficiency: 'Cache reuse, error rates and subagent leverage.',
 };
@@ -49,7 +50,7 @@ const PAGE_SUBTITLES: Record<(typeof PAGES)[number]['name'], string> = {
 export function App(props: AppProps) {
   const deps = props.deps ?? {
     filterStats: realFilterStats,
-    daySeries: realDaySeries,
+    usageSeries: realUsageSeries,
     refreshStats: realRefreshStats,
     now: () => new Date(),
   };
@@ -60,6 +61,7 @@ export function App(props: AppProps) {
   // slide out from under the user mid-session.
   const [range, setRange] = useState(() => defaultDateRange(deps.now()));
   const [projects, setProjects] = useState<string[]>([]);
+  const [granularity, setGranularity] = useState<Granularity>('day');
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
 
@@ -70,7 +72,7 @@ export function App(props: AppProps) {
     to: to || undefined,
     projects,
   });
-  const series = deps.daySeries(filtered);
+  const series = deps.usageSeries(filtered, granularity);
   const hasData = Object.keys(filtered.days).length > 0;
 
   function toggleProject(project: string) {
@@ -182,6 +184,27 @@ export function App(props: AppProps) {
                   className="h-11 w-[10.5rem] cursor-pointer"
                 />
               </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="granularity" className="text-xs text-muted-foreground">
+                  Group by
+                </Label>
+                <select
+                  id="granularity"
+                  value={granularity}
+                  onChange={(e) => setGranularity(e.target.value as Granularity)}
+                  className={cn(
+                    'h-11 w-[10.5rem] cursor-pointer appearance-none rounded-md border border-input',
+                    'bg-transparent px-3 text-sm text-foreground shadow-xs transition-colors duration-200',
+                    'focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none',
+                  )}
+                >
+                  {GRANULARITIES.map((option) => (
+                    <option key={option} value={option}>
+                      {GRANULARITY_LABELS[option]}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             {stats.projects.length > 0 && (
@@ -263,7 +286,7 @@ export function App(props: AppProps) {
         )}
 
         {hasData ? (
-          <Component stats={filtered} series={series} />
+          <Component stats={filtered} series={series} granularity={granularity} />
         ) : (
           <EmptyState
             title="No activity in this range"

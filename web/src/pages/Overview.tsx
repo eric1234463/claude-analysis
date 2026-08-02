@@ -1,6 +1,8 @@
 import { Bar, BarChart, CartesianGrid, Legend, Tooltip, XAxis, YAxis } from 'recharts';
 import { Coins, MessagesSquare, Wrench, Zap } from 'lucide-react';
-import type { AggregateStats, UsageCounts } from '../api/types';
+import type { AggregateStats } from '../api/types';
+import type { SeriesPoint } from '../api/filterStats';
+import { GRANULARITY_ADJECTIVE, GRANULARITY_NOUN, type Granularity } from '../api/granularity';
 import {
   AXIS_LINE,
   AXIS_TICK,
@@ -17,20 +19,21 @@ import { formatCompact, formatNumber, formatPercent } from '@/lib/format';
 
 export interface PageProps {
   stats: AggregateStats;
-  series: Array<{ day: string; counts: UsageCounts }>;
+  series: SeriesPoint[];
+  granularity: Granularity;
 }
 
-export function dailyMainSidechainData(series: Array<{ day: string; counts: UsageCounts }>) {
-  return series.map(({ day, counts }) => ({
-    day,
+export function mainSidechainData(series: readonly SeriesPoint[]) {
+  return series.map(({ bucket, counts }) => ({
+    bucket,
     main: counts.mainTokens.total,
     sidechain: counts.sidechainTokens.total,
   }));
 }
 
-export function dailyTokenTypeData(series: Array<{ day: string; counts: UsageCounts }>) {
-  return series.map(({ day, counts }) => ({
-    day,
+export function tokenTypeData(series: readonly SeriesPoint[]) {
+  return series.map(({ bucket, counts }) => ({
+    bucket,
     input: counts.tokens.input,
     output: counts.tokens.output,
     cacheRead: counts.tokens.cacheRead,
@@ -43,12 +46,12 @@ const SEGMENT_GAP = { stroke: 'var(--card)', strokeWidth: 2 } as const;
 
 const tokenTooltip = { ...TOOLTIP_PROPS, formatter: formatTooltipNumber };
 
-export function Overview({ stats, series }: PageProps) {
-  const dailyTokensData = dailyMainSidechainData(series);
-  const dailyTokenTypesData = dailyTokenTypeData(series);
+export function Overview({ stats, series, granularity }: PageProps) {
+  const tokensData = mainSidechainData(series);
+  const tokenTypesData = tokenTypeData(series);
 
-  const sessionsData = series.map(({ day, counts }) => ({
-    day,
+  const sessionsData = series.map(({ bucket, counts }) => ({
+    bucket,
     sessions: counts.sessionsStarted,
   }));
 
@@ -102,13 +105,13 @@ export function Overview({ stats, series }: PageProps) {
       <div className="grid gap-4 lg:grid-cols-2">
         <ChartCard
           testId="chart-daily-tokens"
-          title="Daily tokens"
+          title={`${GRANULARITY_ADJECTIVE[granularity]} tokens`}
           description="Split by execution context"
           className="lg:col-span-2"
         >
-          <BarChart data={dailyTokensData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+          <BarChart data={tokensData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
             <CartesianGrid {...GRID_PROPS} />
-            <XAxis dataKey="day" tick={AXIS_TICK} axisLine={AXIS_LINE} tickLine={false} />
+            <XAxis dataKey="bucket" tick={AXIS_TICK} axisLine={AXIS_LINE} tickLine={false} />
             <YAxis
               tick={AXIS_TICK}
               axisLine={false}
@@ -140,13 +143,13 @@ export function Overview({ stats, series }: PageProps) {
 
         <ChartCard
           testId="chart-daily-token-types"
-          title="Daily tokens by type"
+          title={`${GRANULARITY_ADJECTIVE[granularity]} tokens by type`}
           description="Input, output and cache traffic"
           className="lg:col-span-2"
         >
-          <BarChart data={dailyTokenTypesData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+          <BarChart data={tokenTypesData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
             <CartesianGrid {...GRID_PROPS} />
-            <XAxis dataKey="day" tick={AXIS_TICK} axisLine={AXIS_LINE} tickLine={false} />
+            <XAxis dataKey="bucket" tick={AXIS_TICK} axisLine={AXIS_LINE} tickLine={false} />
             <YAxis
               tick={AXIS_TICK}
               axisLine={false}
@@ -195,11 +198,11 @@ export function Overview({ stats, series }: PageProps) {
         <ChartCard
           testId="chart-sessions-per-day"
           title="Sessions started"
-          description="New sessions per day"
+          description={`New sessions per ${GRANULARITY_NOUN[granularity]}`}
         >
           <BarChart data={sessionsData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
             <CartesianGrid {...GRID_PROPS} />
-            <XAxis dataKey="day" tick={AXIS_TICK} axisLine={AXIS_LINE} tickLine={false} />
+            <XAxis dataKey="bucket" tick={AXIS_TICK} axisLine={AXIS_LINE} tickLine={false} />
             <YAxis tick={AXIS_TICK} axisLine={false} tickLine={false} width={36} allowDecimals={false} />
             <Tooltip {...TOOLTIP_PROPS} />
             <Bar
