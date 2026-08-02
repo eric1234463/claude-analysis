@@ -1,13 +1,32 @@
 import { Bar, BarChart, CartesianGrid, Legend, Tooltip, XAxis, YAxis } from 'recharts';
+import { Layers, Sparkles } from 'lucide-react';
 import type { AggregateStats, UsageCounts } from '../api/types';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  AXIS_LINE,
+  AXIS_TICK,
+  CHART_COLORS,
+  ChartCard,
+  GRID_PROPS,
+  LEGEND_PROPS,
+  StatCard,
+  TOOLTIP_PROPS,
+  truncateTick,
+} from '@/components/charts';
+import { formatNumber } from '@/lib/format';
 
 export interface PageProps {
   stats: AggregateStats;
   series: Array<{ day: string; counts: UsageCounts }>;
 }
-
-const CHART_WIDTH = 600;
-const CHART_HEIGHT = 300;
 
 /** Monday (UTC) of the ISO week containing `day` (a local-time calendar date, e.g. '2026-07-09'). */
 function weekKey(day: string): string {
@@ -15,6 +34,8 @@ function weekKey(day: string): string {
   d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
   return d.toISOString().slice(0, 10);
 }
+
+const SEGMENT_GAP = { stroke: 'var(--card)', strokeWidth: 2 } as const;
 
 export function Skills(props: PageProps) {
   const { stats, series } = props;
@@ -63,48 +84,124 @@ export function Skills(props: PageProps) {
   }
   const projectRows = [...perProject.entries()].sort(([a], [b]) => a.localeCompare(b));
 
+  const totalInvocations = series.reduce((sum, { counts }) => sum + counts.skillInvocations, 0);
+
   return (
-    <section data-testid="page-skills">
-      <h2>Skills</h2>
-
-      <div data-testid="chart-skill-trend">
-        <BarChart width={CHART_WIDTH} height={CHART_HEIGHT} data={trendData}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="week" />
-          <YAxis allowDecimals={false} />
-          <Tooltip />
-          <Bar dataKey="invocations" fill="#8884d8" />
-        </BarChart>
+    <section data-testid="page-skills" className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <StatCard
+          label="Invocations"
+          value={formatNumber(totalInvocations)}
+          hint="Across the selected range"
+          icon={Sparkles}
+        />
+        <StatCard
+          label="Distinct entries"
+          value={formatNumber(countData.length)}
+          hint="Skills and commands used at least once"
+          icon={Layers}
+        />
       </div>
 
-      <div data-testid="chart-skill-counts">
-        <BarChart width={CHART_WIDTH} height={CHART_HEIGHT} data={countData}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="name" />
-          <YAxis allowDecimals={false} />
-          <Tooltip />
-          <Legend />
-          <Bar dataKey="skill-tool" fill="#8884d8" />
-          <Bar dataKey="slash-command" fill="#82ca9d" />
-        </BarChart>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <ChartCard
+          testId="chart-skill-trend"
+          title="Invocations per week"
+          description="Binned to the Monday of each ISO week"
+        >
+          <BarChart data={trendData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+            <CartesianGrid {...GRID_PROPS} />
+            <XAxis dataKey="week" tick={AXIS_TICK} axisLine={AXIS_LINE} tickLine={false} />
+            <YAxis
+              tick={AXIS_TICK}
+              axisLine={false}
+              tickLine={false}
+              width={36}
+              allowDecimals={false}
+            />
+            <Tooltip {...TOOLTIP_PROPS} />
+            <Bar
+              dataKey="invocations"
+              name="Invocations"
+              fill={CHART_COLORS[0]}
+              radius={[4, 4, 0, 0]}
+              {...SEGMENT_GAP}
+            />
+          </BarChart>
+        </ChartCard>
+
+        <ChartCard
+          testId="chart-skill-counts"
+          title="Invocations by name"
+          description="Counted separately by how each was triggered"
+          height={Math.max(240, countData.length * 34)}
+        >
+          <BarChart
+            data={countData}
+            layout="vertical"
+            margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
+          >
+            <CartesianGrid {...GRID_PROPS} vertical horizontal={false} />
+            <XAxis
+              type="number"
+              tick={AXIS_TICK}
+              axisLine={false}
+              tickLine={false}
+              allowDecimals={false}
+            />
+            <YAxis
+              type="category"
+              dataKey="name"
+              tick={AXIS_TICK}
+              axisLine={false}
+              tickLine={false}
+              width={150}
+              tickFormatter={truncateTick}
+            />
+            <Tooltip {...TOOLTIP_PROPS} />
+            <Legend {...LEGEND_PROPS} />
+            <Bar
+              dataKey="skill-tool"
+              fill={CHART_COLORS[0]}
+              radius={[0, 4, 4, 0]}
+              {...SEGMENT_GAP}
+            />
+            <Bar
+              dataKey="slash-command"
+              fill={CHART_COLORS[2]}
+              radius={[0, 4, 4, 0]}
+              {...SEGMENT_GAP}
+            />
+          </BarChart>
+        </ChartCard>
       </div>
 
-      <table data-testid="table-skill-projects">
-        <thead>
-          <tr>
-            <th>Project</th>
-            <th>Skill invocations</th>
-          </tr>
-        </thead>
-        <tbody>
-          {projectRows.map(([project, count]) => (
-            <tr key={project}>
-              <td>{project}</td>
-              <td>{count}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <Card>
+        <CardHeader className="gap-1">
+          <CardTitle className="text-sm font-medium">Invocations by project</CardTitle>
+          <CardDescription className="text-xs">
+            Every project in the selection, including those with none
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="px-2">
+          <Table data-testid="table-skill-projects">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Project</TableHead>
+                <TableHead className="text-right">Skill invocations</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {projectRows.map(([project, count]) => (
+                <TableRow key={project}>
+                  <TableCell className="font-mono text-xs">{project}</TableCell>
+                  <TableCell className="tabular text-right">{count}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </section>
   );
 }

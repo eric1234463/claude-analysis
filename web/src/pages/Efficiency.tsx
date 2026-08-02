@@ -1,17 +1,27 @@
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bot, CircleAlert, Gauge, Layers, Split } from 'lucide-react';
 import type { AggregateStats, UsageCounts } from '../api/types';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  AXIS_LINE,
+  AXIS_TICK,
+  CHART_COLORS,
+  ChartCard,
+  GRID_PROPS,
+  StatCard,
+  TOOLTIP_PROPS,
+  formatTooltipNumber,
+  formatTooltipPercent,
+  truncateTick,
+} from '@/components/charts';
+import { formatCompact, formatNumber, formatPercent } from '@/lib/format';
 
 export interface PageProps {
   stats: AggregateStats;
   series: Array<{ day: string; counts: UsageCounts }>;
-  width?: number;
-  height?: number;
 }
 
-function formatPercent(numerator: number, denominator: number): string {
-  if (!denominator) return '0%';
-  return `${((numerator / denominator) * 100).toFixed(1)}%`;
-}
+const SEGMENT_GAP = { stroke: 'var(--card)', strokeWidth: 2 } as const;
 
 function formatInteger(numerator: number, denominator: number): string {
   if (!denominator) return '0';
@@ -40,7 +50,19 @@ export function toolErrorTrendData(series: Array<{ day: string; counts: UsageCou
   }));
 }
 
-export function Efficiency({ stats, series, width = 600, height = 300 }: PageProps) {
+const percentTooltip = { ...TOOLTIP_PROPS, formatter: formatTooltipPercent };
+
+/** Shared axis config for the two rate trends, so both read on the same 0–100 scale. */
+const percentAxis = {
+  tick: AXIS_TICK,
+  axisLine: false,
+  tickLine: false,
+  width: 44,
+  domain: [0, 100],
+  tickFormatter: (value: number) => `${value}%`,
+} as const;
+
+export function Efficiency({ stats, series }: PageProps) {
   const { totals } = stats;
 
   const cacheHitRatio = formatPercent(
@@ -71,43 +93,154 @@ export function Efficiency({ stats, series, width = 600, height = 300 }: PagePro
   const toolErrorTrend = toolErrorTrendData(series);
 
   return (
-    <section data-testid="page-efficiency">
-      <div data-testid="metric-cache-hit-ratio">{cacheHitRatio}</div>
-      <div data-testid="metric-tool-error-rate">{toolErrorRate}</div>
-      <div data-testid="metric-avg-tokens-per-session">{avgTokensPerSession}</div>
-      <div data-testid="metric-sidechain-share">{sidechainShare}</div>
-      <div data-testid="metric-agent-runs">{totals.agentRuns}</div>
-      <ul data-testid="list-agent-types">
-        {agentTypes.map((agent) => (
-          <li key={agent.name}>
-            <span>{agent.name}</span>: {agent.runs} runs, {agent.tokens} tokens
-          </li>
-        ))}
-      </ul>
-      <div data-testid="chart-active-projects">
-        <BarChart width={width} height={height} data={activeProjects} layout="vertical">
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis type="number" />
-          <YAxis type="category" dataKey="project" />
-          <Bar dataKey="tokens" fill="#8884d8" />
-        </BarChart>
+    <section data-testid="page-efficiency" className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <StatCard
+          label="Cache hit ratio"
+          value={cacheHitRatio}
+          valueTestId="metric-cache-hit-ratio"
+          hint="Cache reads of all read tokens"
+          icon={Gauge}
+        />
+        <StatCard
+          label="Tool error rate"
+          value={toolErrorRate}
+          valueTestId="metric-tool-error-rate"
+          hint="Failed calls of all calls"
+          icon={CircleAlert}
+        />
+        <StatCard
+          label="Tokens / session"
+          value={avgTokensPerSession}
+          valueTestId="metric-avg-tokens-per-session"
+          hint="Mean over sessions started"
+          icon={Layers}
+        />
+        <StatCard
+          label="Subagent share"
+          value={sidechainShare}
+          valueTestId="metric-sidechain-share"
+          hint="Of all tokens spent"
+          icon={Split}
+        />
+        <StatCard
+          label="Subagent runs"
+          value={formatNumber(totals.agentRuns)}
+          valueTestId="metric-agent-runs"
+          hint={`${agentTypes.length} agent types`}
+          icon={Bot}
+        />
       </div>
-      <div data-testid="chart-cache-hit-trend">
-        <p>Cache hit ratio per day</p>
-        <BarChart width={width} height={height} data={cacheHitTrend}>
-          <XAxis dataKey="day" />
-          <YAxis />
-          <Bar dataKey="cacheHitRatio" name="Cache hit %" fill="#55a868" minPointSize={1} />
-        </BarChart>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <ChartCard
+          testId="chart-cache-hit-trend"
+          title="Cache hit ratio per day"
+          description="Higher is cheaper"
+        >
+          <BarChart data={cacheHitTrend} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+            <CartesianGrid {...GRID_PROPS} />
+            <XAxis dataKey="day" tick={AXIS_TICK} axisLine={AXIS_LINE} tickLine={false} />
+            <YAxis {...percentAxis} />
+            <Tooltip {...percentTooltip} />
+            <Bar
+              dataKey="cacheHitRatio"
+              name="Cache hit %"
+              fill={CHART_COLORS[2]}
+              minPointSize={1}
+              radius={[4, 4, 0, 0]}
+              {...SEGMENT_GAP}
+            />
+          </BarChart>
+        </ChartCard>
+
+        <ChartCard
+          testId="chart-tool-error-trend"
+          title="Tool error rate per day"
+          description="Lower is better"
+        >
+          <BarChart data={toolErrorTrend} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+            <CartesianGrid {...GRID_PROPS} />
+            <XAxis dataKey="day" tick={AXIS_TICK} axisLine={AXIS_LINE} tickLine={false} />
+            <YAxis {...percentAxis} />
+            <Tooltip {...percentTooltip} />
+            <Bar
+              dataKey="toolErrorRate"
+              name="Tool error %"
+              fill={CHART_COLORS[4]}
+              minPointSize={1}
+              radius={[4, 4, 0, 0]}
+              {...SEGMENT_GAP}
+            />
+          </BarChart>
+        </ChartCard>
       </div>
-      <div data-testid="chart-tool-error-trend">
-        <p>Tool error rate per day</p>
-        <BarChart width={width} height={height} data={toolErrorTrend}>
-          <XAxis dataKey="day" />
-          <YAxis />
-          <Bar dataKey="toolErrorRate" name="Tool error %" fill="#c44e52" minPointSize={1} />
+
+      <ChartCard
+        testId="chart-active-projects"
+        title="Most active projects"
+        description="Total tokens, ranked"
+        height={Math.max(240, activeProjects.length * 34)}
+      >
+        <BarChart
+          data={activeProjects}
+          layout="vertical"
+          margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
+        >
+          <CartesianGrid {...GRID_PROPS} vertical horizontal={false} />
+          <XAxis
+            type="number"
+            tick={AXIS_TICK}
+            axisLine={false}
+            tickLine={false}
+            tickFormatter={formatCompact}
+          />
+          <YAxis
+            type="category"
+            dataKey="project"
+            tick={AXIS_TICK}
+            axisLine={false}
+            tickLine={false}
+            width={220}
+            tickFormatter={truncateTick}
+          />
+          <Tooltip {...TOOLTIP_PROPS} formatter={formatTooltipNumber} />
+          <Bar
+            dataKey="tokens"
+            name="Tokens"
+            fill={CHART_COLORS[0]}
+            radius={[0, 4, 4, 0]}
+            {...SEGMENT_GAP}
+          />
         </BarChart>
-      </div>
+      </ChartCard>
+
+      <Card>
+        <CardHeader className="gap-1">
+          <CardTitle className="text-sm font-medium">Subagents by type</CardTitle>
+          <CardDescription className="text-xs">Runs and tokens attributed to each</CardDescription>
+        </CardHeader>
+        <CardContent className="px-5">
+          <ul data-testid="list-agent-types" className="divide-y divide-border">
+            {agentTypes.map((agent) => (
+              <li
+                key={agent.name}
+                className="flex flex-wrap items-center justify-between gap-2 py-3 first:pt-0 last:pb-0"
+              >
+                <span className="font-mono text-xs">{agent.name}</span>
+                <span className="tabular text-xs text-muted-foreground">
+                  {formatNumber(agent.runs)} runs · {formatNumber(agent.tokens)} tokens
+                </span>
+              </li>
+            ))}
+            {agentTypes.length === 0 && (
+              <li className="py-3 text-xs text-muted-foreground">
+                No subagents ran in this selection.
+              </li>
+            )}
+          </ul>
+        </CardContent>
+      </Card>
     </section>
   );
 }
