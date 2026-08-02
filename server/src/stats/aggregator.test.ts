@@ -132,6 +132,32 @@ describe('dimensions', () => {
   it('lists projects sorted and derived from the cells', () => {
     expect(all().projects).toStrictEqual(['-a', '-b']);
   });
+
+  it('rolls token events up per attributed skill, merging main and sidechain under one bare name', () => {
+    const s = aggregate([file([
+      { kind: 'token', day: '2026-07-09', project: '-a', model: 'claude-opus-4-8',
+        dedupeKey: 'r1', usage: usage(1, 4), isSidechain: false, skill: 'brainstorming' },
+      { kind: 'token', day: '2026-07-09', project: '-a', model: 'claude-opus-4-8',
+        dedupeKey: 'r2', usage: usage(2, 153, 21047, 6069), isSidechain: true,
+        agentType: 'general-purpose', skill: 'brainstorming' },
+      { kind: 'token', day: '2026-07-09', project: '-a', model: 'claude-opus-4-8',
+        dedupeKey: 'r3', usage: usage(9, 9), isSidechain: false, skill: 'writing-plans' },
+      // Unattributed: counted in tokens, absent from skillTokens.
+      { kind: 'token', day: '2026-07-09', project: '-a', model: 'claude-opus-4-8',
+        dedupeKey: 'r4', usage: usage(100, 100), isSidechain: false },
+    ])], AT);
+
+    expect(s.totals.skillTokens).toStrictEqual({
+      brainstorming: { input: 3, output: 157, cacheRead: 21047, cacheCreation: 6069, total: 27276 },
+      'writing-plans': { input: 9, output: 9, cacheRead: 0, cacheCreation: 0, total: 18 },
+    });
+    // The unattributed turn is still in tokens, so skillTokens never has to sum to it.
+    expect(s.totals.tokens.input).toBe(112);
+  });
+
+  it('leaves skillTokens empty when nothing was attributed', () => {
+    expect(all().totals.skillTokens).toStrictEqual({});
+  });
 });
 
 describe('determinism', () => {

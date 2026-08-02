@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Legend, Tooltip, XAxis, YAxis } from 'recharts';
-import { Layers, Sparkles } from 'lucide-react';
+import { Coins, Layers, Sparkles } from 'lucide-react';
 import type { AggregateStats, UsageCounts } from '../api/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -21,7 +22,7 @@ import {
   TOOLTIP_PROPS,
   truncateTick,
 } from '@/components/charts';
-import { formatNumber } from '@/lib/format';
+import { formatCompact, formatNumber } from '@/lib/format';
 
 export interface PageProps {
   stats: AggregateStats;
@@ -37,8 +38,29 @@ function weekKey(day: string): string {
 
 const SEGMENT_GAP = { stroke: 'var(--card)', strokeWidth: 2 } as const;
 
+/** The columns the usage table can be ordered by. All sort descending. */
+type SortKey = 'invocations' | 'tokens';
+
+function SortableHead(props: { label: string; active: boolean; onClick: () => void }) {
+  const { label, active, onClick } = props;
+  return (
+    <TableHead className="text-right">
+      <button
+        type="button"
+        onClick={onClick}
+        aria-pressed={active}
+        className={`hover:text-foreground ${active ? 'text-foreground' : ''}`}
+      >
+        {label}
+        {active ? ' ↓' : ''}
+      </button>
+    </TableHead>
+  );
+}
+
 export function Skills(props: PageProps) {
   const { stats, series } = props;
+  const [sortBy, setSortBy] = useState<SortKey>('invocations');
 
   // Weekly trend of total skill invocations.
   const trendByWeek = new Map<string, number>();
@@ -71,9 +93,44 @@ export function Skills(props: PageProps) {
     if (!rowsByName.has(name)) rowsByName.set(name, { 'skill-tool': 0, 'slash-command': 0 });
     rowsByName.get(name)![source] = count;
   }
+  // Ranked by how often each name was used; name breaks ties so the order stays stable.
   const countData = [...rowsByName.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([name, counts]) => ({ name, ...counts }));
+    .map(([name, counts]) => ({ name, ...counts }))
+    .sort((a, b) =>
+      (b['skill-tool'] + b['slash-command']) - (a['skill-tool'] + a['slash-command'])
+      || a.name.localeCompare(b.name));
+
+  // Tokens spent inside each skill, keyed on the bare name — `attributionSkill` records no
+  // source, so unlike `counts.skills` these cannot be split by how the skill was triggered.
+  const tokensByName = new Map<string, { weight: number; total: number }>();
+  for (const { counts } of series) {
+    for (const [name, totals] of Object.entries(counts.skillTokens)) {
+      const prev = tokensByName.get(name) ?? { weight: 0, total: 0 };
+      // `weight` is output + cacheCreation: the skill's own footprint. Plain `total` is dominated
+      // by cacheRead, which scales with how long the session ran, not with what the skill did.
+      tokensByName.set(name, {
+        weight: prev.weight + totals.output + totals.cacheCreation,
+        total: prev.total + totals.total,
+      });
+    }
+  }
+
+  // Union of both: a name can be invoked without attributed tokens (built-ins are never
+  // attributed) and, across a filtered range, attributed without its invocation in view.
+  const usageRows = [...new Set([...rowsByName.keys(), ...tokensByName.keys()])]
+    .map((name) => {
+      const counts = rowsByName.get(name);
+      const tokens = tokensByName.get(name);
+      return {
+        name,
+        invocations: counts ? counts['skill-tool'] + counts['slash-command'] : 0,
+        weight: tokens?.weight ?? null,
+        total: tokens?.total ?? null,
+      };
+    })
+    .sort((a, b) =>
+      (sortBy === 'tokens' ? (b.weight ?? -1) - (a.weight ?? -1) : b.invocations - a.invocations)
+      || a.name.localeCompare(b.name));
 
   // Per-project skill counts, from stats.days directly (not series, so all projects are covered).
   const perProject = new Map<string, number>();
@@ -82,13 +139,15 @@ export function Skills(props: PageProps) {
       perProject.set(project, (perProject.get(project) ?? 0) + counts.skillInvocations);
     }
   }
-  const projectRows = [...perProject.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const projectRows = [...perProject.entries()]
+    .sort(([aName, aCount], [bName, bCount]) => bCount - aCount || aName.localeCompare(bName));
 
   const totalInvocations = series.reduce((sum, { counts }) => sum + counts.skillInvocations, 0);
+  const attributedWeight = [...tokensByName.values()].reduce((sum, t) => sum + t.weight, 0);
 
   return (
     <section data-testid="page-skills" className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-3">
         <StatCard
           label="Invocations"
           value={formatNumber(totalInvocations)}
@@ -100,6 +159,13 @@ export function Skills(props: PageProps) {
           value={formatNumber(countData.length)}
           hint="Skills and commands used at least once"
           icon={Layers}
+        />
+        <StatCard
+          label="Skill tokens"
+          value={formatCompact(attributedWeight)}
+          valueTestId="stat-skill-tokens"
+          hint="Output + cache writes on turns inside a skill"
+          icon={Coins}
         />
       </div>
 
@@ -175,6 +241,54 @@ export function Skills(props: PageProps) {
           </BarChart>
         </ChartCard>
       </div>
+
+      <Card>
+        <CardHeader className="gap-1">
+          <CardTitle className="text-sm font-medium">Usage and cost by name</CardTitle>
+          <CardDescription className="text-xs">
+            Tokens are attributed to the skill that was active for the turn, subagents included.
+            Both trigger paths share one row — the attribution records no source.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="px-2">
+          <Table data-testid="table-skill-usage">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <SortableHead
+                  label="Invocations"
+                  active={sortBy === 'invocations'}
+                  onClick={() => setSortBy('invocations')}
+                />
+                <SortableHead
+                  label="Tokens"
+                  active={sortBy === 'tokens'}
+                  onClick={() => setSortBy('tokens')}
+                />
+                <TableHead className="text-right">Total w/ cache reads</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {usageRows.map((row) => (
+                <TableRow key={row.name}>
+                  <TableCell className="font-mono text-xs">{row.name}</TableCell>
+                  <TableCell className="tabular text-right">{row.invocations}</TableCell>
+                  <TableCell className="tabular text-right">
+                    {row.weight === null ? (
+                      <span className="text-muted-foreground">—</span>
+                    ) : (
+                      formatNumber(row.weight)
+                    )}
+                  </TableCell>
+                  <TableCell className="tabular text-right text-muted-foreground">
+                    {row.total === null ? '—' : formatNumber(row.total)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="gap-1">

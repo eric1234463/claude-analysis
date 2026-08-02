@@ -34,6 +34,7 @@ function mergeUsageCounts(cells: readonly UsageCounts[]): UsageCounts {
     models: {},
     tools: {},
     skills: {},
+    skillTokens: {},
     agents: {},
   };
 
@@ -56,6 +57,9 @@ function mergeUsageCounts(cells: readonly UsageCounts[]): UsageCounts {
     }
     for (const [skill, count] of Object.entries(cell.skills)) {
       result.skills[skill] = (result.skills[skill] ?? 0) + count;
+    }
+    for (const [skill, totals] of Object.entries(cell.skillTokens)) {
+      result.skillTokens[skill] = addTokenTotals(result.skillTokens[skill] ?? zeroTokenTotals(), totals);
     }
     for (const [agent, counts] of Object.entries(cell.agents)) {
       const prev = result.agents[agent] ?? { runs: 0, tokens: zeroTokenTotals() };

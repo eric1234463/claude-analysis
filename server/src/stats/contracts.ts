@@ -27,7 +27,10 @@ export interface TokenUsage {
 
 export type UsageEvent =
   | { kind: 'token'; day: string; project: string; model: string; dedupeKey: string;
-      usage: TokenUsage; isSidechain: boolean; agentId?: string; agentType?: string }
+      usage: TokenUsage; isSidechain: boolean; agentId?: string; agentType?: string;
+      /** Bare skill name from the line's `attributionSkill`, when the turn ran inside a skill.
+       *  Carries no source — see UsageCounts.skillTokens. */
+      skill?: string }
   | { kind: 'tool-call'; day: string; project: string; tool: string; isSidechain: boolean }
   | { kind: 'tool-error'; day: string; project: string; tool: string; isSidechain: boolean }
   | { kind: 'skill'; day: string; project: string; name: string;
@@ -62,6 +65,10 @@ export interface UsageCounts {
   tools: Record<string, ToolCounts>;
   /** key is `${source}|${name}` */
   skills: Record<string, number>;
+  /** Tokens spent on turns that ran inside a skill, keyed on the **bare skill name**.
+   *  `attributionSkill` records no source, so unlike `skills` this cannot be split into
+   *  `skill-tool` / `slash-command` — one entry covers both trigger paths for a name. */
+  skillTokens: Record<string, TokenTotals>;
   agents: Record<string, AgentCounts>;
 }
 

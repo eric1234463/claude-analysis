@@ -18,6 +18,7 @@ interface RawLine {
   sessionId?: string;
   requestId?: string;
   timestamp?: string;
+  attributionSkill?: string;
   message?: {
     role?: string;
     model?: string;
@@ -54,6 +55,7 @@ interface TokenEvent {
   isSidechain: boolean;
   agentId?: string;
   agentType?: string;
+  skill?: string;
 }
 
 /** Pure: no fs, no clock, no ambient timezone. Never throws.
@@ -63,7 +65,10 @@ interface TokenEvent {
  *  Dedupe is **per call** (i.e. per file): token events are keyed on
  *  `line.requestId ?? line.uuid`, and the **last** usage-bearing occurrence in line order wins.
  *  Token usage is read **only** from `line.message.usage` on `type: "assistant"` lines — no other
- *  field anywhere on the line, including any subagent rollup sibling of `message`, is ever read. */
+ *  field anywhere on the line, including any subagent rollup sibling of `message`, is ever read.
+ *  A usage-bearing line's top-level `attributionSkill` (a bare skill name, written by Claude Code
+ *  for the duration of a skill run and absent outside one) is carried onto the token event as
+ *  `skill`; it is scoped, so it is read per line and never inferred from a neighbouring line. */
 export function parseTranscript(
   file: TranscriptFile,
   lines: Iterable<string>,
@@ -152,6 +157,9 @@ export function parseTranscript(
             usage,
             isSidechain: file.kind === 'sidechain',
             ...(file.kind === 'sidechain' ? { agentId: file.agentId, agentType: file.agentType } : {}),
+            ...(typeof parsed.attributionSkill === 'string' && parsed.attributionSkill.length > 0
+              ? { skill: parsed.attributionSkill }
+              : {}),
           };
           tokenEvents.set(key, event);
         }

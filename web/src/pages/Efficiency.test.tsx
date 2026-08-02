@@ -99,6 +99,7 @@ describe('Efficiency with nothing selected', () => {
       models: {},
       tools: {},
       skills: {},
+      skillTokens: {},
       agents: {},
     },
   };
