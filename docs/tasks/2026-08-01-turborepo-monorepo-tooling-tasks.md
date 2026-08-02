@@ -261,7 +261,7 @@ Four tasks, dispatched together. No task waits for another.
 
 ## Task 1: Consolidate `server` and `web` into one npm workspace
 
-**Status:** ⬜ Not Started
+**Status:** ✅ Completed
 **Phase:** 1 · **Wave:** 1
 **Provides:** C-2, C-5
 **Consumes:** none
@@ -400,13 +400,25 @@ git commit -m "Consolidate server and web into one npm workspace"
 
 ### Progress notes
 
-_—_
+✅ Completed. Success criteria: MET (all 8). Files: package.json, package-lock.json (created),
+server/package-lock.json + web/package-lock.json (deleted). **Verified by controller:** `npm ls --workspaces
+--depth=0` lists both packages; C-2 assertion OK (identity fields `name`/`private`/`version` also checked
+unchanged); `npm test --prefix server -- run` → 8 files/76 tests, `--prefix web` → 8 files/74 tests, both
+**identical to the C-5 baseline**; both typechecks exit 0; resolved versions unchanged (typescript@5.9.3,
+vitest@4.1.10, reflect-metadata@0.2.2). **Mutation 1 proved by controller** (removed `"web"` from workspaces
+→ web's deps flip to `extraneous` and the `-> ./web` workspace link disappears; reverted). C-2 conforms to
+registry; C-5 recorded in Wave 1 Summary. Commit: f43cabc.
+**Deviation:** agent did a clean `rm -rf node_modules && npm install` after mutation 3 (the `pnpm` devEngines
+test) left an extraneous optional dep behind. Justified — it restored the pristine state the success criteria
+describe, and all final numbers were re-measured after it.
+**Task-doc defects found (implementation is correct; the *assertion commands* were wrong):** see
+Carry-Forward Notes CF-1 and CF-2.
 
 ---
 
 ## Task 2: Add the server `dev` script alias
 
-**Status:** ⬜ Not Started
+**Status:** ✅ Completed
 **Phase:** 1 · **Wave:** 1
 **Provides:** C-1
 **Consumes:** none
@@ -506,13 +518,18 @@ git commit -m "Add a dev script alias so Turborepo can start the server"
 
 ### Progress notes
 
-_—_
+✅ Completed. Success criteria: MET (all 5). Files: server/package.json — diff is exactly **one added line**.
+**Verified by controller:** C-1 assertion script → `C-1 OK — both packages expose dev, build, test, typecheck`;
+`start:dev`, `test`, `build`, `typecheck`, `start` all byte-unchanged. **Mutation 2 proved by controller**
+(`test` → `vitest run` → threw `test must stay bare vitest, got: vitest run`; reverted) — this is the invariant
+break, since it would silently defeat C-3's argument forwarding. C-1 conforms to registry. Agent ran no npm or
+git commands, as required by the concurrency constraint. Commit: 9bc77d3. Deviations: none.
 
 ---
 
 ## Task 3: Rewrite the README Development section
 
-**Status:** ⬜ Not Started
+**Status:** ✅ Completed
 **Phase:** 1 · **Wave:** 1
 **Provides:** none
 **Consumes:** none
@@ -612,13 +629,20 @@ git commit -m "Document the workspace install and per-package commands"
 
 ### Progress notes
 
-_—_
+✅ Completed. Success criteria: MET (all 9). Files: README.md. **Verified by controller:** check (a)
+`npm install --prefix` → 0; check (d) bare root commands → 0; heading + Layout intact. **Stronger than the
+scripted checks:** with the hoisted tree now in place I ran the documented commands for real —
+`npm test --prefix server -- run src/stats/parser.test.ts` → 1 file/16 tests passing, and `npm run -w server`
+lists `dev`. That is direct evidence the preserved file-scoped idiom survived the migration, which is the
+whole rationale for Decision 5 in the plan. **Mutation 2 proved by controller** (added a bare `npm run dev`
+→ check (d) reported 1; reverted). Commit: 0e5510c. Deviations: none — agent followed the suggested shape and
+added the worktree note in prose.
 
 ---
 
 ## Task 4: Mark the completed dashboard task doc superseded
 
-**Status:** ⬜ Not Started
+**Status:** ✅ Completed
 **Phase:** 3 · **Wave:** 1
 **Provides:** none
 **Consumes:** none
@@ -699,23 +723,59 @@ git commit -m "Note that the dashboard run's install commands are superseded"
 
 ### Progress notes
 
-_—_
+✅ Completed. Success criteria: MET (all 7). Files: docs/tasks/2026-08-01-claude-usage-dashboard-tasks.md.
+**Verified by controller:** `git diff --numstat` → **7 insertions, 0 deletions** — the historical record is
+byte-intact; install `--prefix` count 6, test `--prefix` count 44, Final Summary 1, `✅ Completed` markers 29,
+all unchanged; note present in `head -30` and links the plan. **Mutation 1 proved by controller** (falsified
+one install command → count dropped to 5; reverted). Commit: 51141c3.
+**Deviation worth keeping:** the agent's first draft quoted the literal strings `npm install --prefix` /
+`npm test --prefix` inside the warning prose, which inflated the grep counts to 7 and 45 — the note was being
+counted as one of the commands it warns about. It rephrased to describe the commands without reproducing the
+matched substrings. See Carry-Forward Note CF-3.
 
 ---
 
 ## Wave 1 Summary
 
-**Status:** ⬜ Not Started
+**Status:** ✅ Complete — 4/4 tasks committed, working tree clean.
 
-**C-5 baseline record — the controller writes Task 1's reported baseline here before committing it. Task 6 reads it from this block.**
+**C-5 baseline record** (captured by Task 1 before any deletion; Task 6 compares against this):
 
 ```
-server: — test files, — tests passing
-web:    — test files, — tests passing
-resolved versions: typescript@—, vitest@—, vite@—, reflect-metadata@—
+server: 8 test files, 76 tests passing
+web:    8 test files, 74 tests passing
+resolved versions: typescript@5.9.3, vitest@4.1.10, vite@8.2.0, reflect-metadata@0.2.2
 ```
 
-_Commits, deviations, and carry-forward notes: —_
+**Commits:** `f43cabc` T1 · `9bc77d3` T2 · `0e5510c` T3 · `51141c3` T4
+
+**Amendments issued:** none. No agent requested one; all four contracts (C-1, C-2, C-5) conformed as written.
+
+**Systemic signals watched for:** none fired. The four tasks touched disjoint files with no shared convention
+between them, and no two agents reported the same surprise. The one cross-cutting constraint — "run no npm
+command while Task 1 rebuilds node_modules" — was honoured by all three non-installing agents.
+
+### Carry-Forward Notes
+
+- **CF-1 — Task 1 verification (d) is wrong as written and must not be re-run literally.**
+  `npm ls reflect-metadata --all | grep -c "reflect-metadata@"` returns **3** in a *correct* hoisted install,
+  not 1, because `--all` prints a line per reference and marks repeats `deduped`. The real invariant is the
+  physical copy count: `find node_modules -maxdepth 2 -iname reflect-metadata -type d` → exactly
+  `node_modules/reflect-metadata`. Verified that way. **The Final Gate's adversarial reviewer must use the
+  `find` form, or it will report a false divergence.**
+- **CF-2 — Task 1 verification (a) does not fail loudly under its own mutation 1.** With `"web"` removed from
+  `workspaces`, `npm ls --workspaces --depth=0` still *mentions* the web package and still **exits 0**; the
+  actual signal is that web's dependencies flip to `extraneous` and the `claude-usage-dashboard-web -> ./web`
+  workspace link disappears. An exit-code or plain-grep gate would pass a broken config.
+- **CF-3 — a doc-editing task whose verification greps for command strings can count its own warning text.**
+  Task 4 hit this: prose quoting `npm install --prefix` inflated the very count that proves the record intact.
+  Any future note of this kind must describe the commands rather than reproduce them.
+- **CF-4 — `npm test --prefix <pkg> -- run <path>` survives the workspace migration**, confirmed empirically
+  during Task 3 review (`src/stats/parser.test.ts` → 1 file/16 tests). This is the evidence for the plan's
+  Decision 5 and for keeping both `test` scripts as bare `vitest`. Task 5 must not "improve" them.
+- **CF-5 — OQ-1 was resolved by default at dispatch: document-only, no `CI=true` guard.** C-3 stands exactly as
+  the registry states it. Task 5 implements it unchanged; Task 6 records the bare-`turbo run test` caveat in
+  the README.
 
 ---
 
