@@ -16,10 +16,10 @@ wiki: false
 **Source plan:** `docs/plans/2026-08-05-token-throughput-metric.md`
 
 **Baseline captured before dispatch**
-- Measured: current working tree, clean at ced3eb6
+- Measured: current working tree, clean at d9919d2
 - Command: `npm test`
 - Exit code: `0` — the suite was **GREEN** at baseline; any failure during this run is a regression
-- Full log: `/var/folders/1c/sm4q4wb55597_fdm_b4tqjdr0000gn/T//baseline-ced3eb6.log`
+- Full log: `/var/folders/1c/sm4q4wb55597_fdm_b4tqjdr0000gn/T//baseline-d9919d2.log`
 
 ## Source Plan Summary
 
@@ -208,7 +208,7 @@ _— none yet — (controller fills in; each entry: contract ID, what changed, w
 
 ## Wave 0
 
-### Task 1: Materialize throughput contracts and extend the shared fixture — ⬜ Not Started
+### Task 1: Materialize throughput contracts and extend the shared fixture — ✅ Completed
 
 **Phase:** 2 · **Wave:** 0 · **Provides:** C-1, C-4 (and transcribes C-2's declaration) · **Consumes:** C-3 (owner Task 3 — the fixture values below already obey it) · **Assumes decision:** none
 
@@ -252,13 +252,22 @@ git commit -m "Declare throughput contracts and extend the shared fixture"
 
 **Memory notes:** session — Wave 0 committed means typecheck is red until Wave 1 completes (expected). Repo-memory candidate: none.
 
-**Progress:** —
+**Progress:** ✅ Completed. Success criteria: MET (3/3). Files: `server/src/stats/contracts.ts`,
+`server/src/stats/contracts.test.ts`, `web/src/api/types.ts`,
+`web/src/api/__fixtures__/aggregate-stats.json`. Controller verification:
+`npm test --prefix server -- run src/stats/contracts.test.ts` → PASS (4/4) and
+`npm test --prefix web -- run src/api/types.test.ts` → PASS (4/4). C-1, C-2 declaration, and C-4
+CONFORM; the mirrored throughput blocks are byte-identical, the fixture diff is additions-only after
+removing the five new fields, and the C-4 totals reconcile (`excludedRequests`: 6 + 1 = 7).
+`AGGREGATE_STATS_KEYS` is unchanged. Mutations: n/a (declaration-only). Commit: `8375822`.
+Deviation: controller requested restoration of pre-existing comment indentation before commit; final
+diff contains no unrelated comment change.
 
 ---
 
 ## Wave 1
 
-### Task 2: Derive per-request durations in the parser; version the cache key — ⬜ Not Started
+### Task 2: Derive per-request durations in the parser; version the cache key — ✅ Completed
 
 **Phase:** 1 · **Wave:** 1 · **Provides:** C-2 (semantics), C-6 · **Consumes:** C-1/C-2 declarations (owner Task 1, already committed) · **Assumes decision:** none
 
@@ -394,9 +403,19 @@ git commit -m "Derive per-request durations in the parser and version the file c
 
 **Memory notes:** session — none. Repo-memory candidate (verify at Final Gate): "transcript lines of types queue-operation / file-history-delta / pr-link carry out-of-order timestamps and must never anchor time-derived metrics".
 
-**Progress:** —
+**Progress:** ✅ Completed. Success criteria: MET (3/3). Files: `server/src/stats/parser.ts`,
+`server/src/stats/parser.test.ts`, `server/src/stats/file-cache.ts`,
+`server/src/stats/file-cache.test.ts`. Controller verification:
+`npm test --prefix server -- run src/stats/parser.test.ts src/stats/file-cache.test.ts` → PASS
+(35/35 across 2 files). Named mutations all proven dead and reverted: M1 self-anchor failed four
+duration assertions; M2 removing `queue-operation` failed the bookkeeping case; M3 retaining the
+first end timestamp failed two cases; M4 re-anchoring on repeated sight failed two cases; M5 clearing
+on timestamp-less input failed the bookkeeping case; M6 removing `:v2` failed both cache assertions.
+C-2 and C-6 CONFORM; anchor capture precedes advancement and the early continue, grouping stays by
+the existing file-wide dedupe key, and parser purity is preserved (no fs, clock, or ambient-zone
+lookup). Scope matches ownership. Commit: `51b2200`. Deviations: none.
 
-### Task 3: Aggregate throughput cells under the eligibility rule — ⬜ Not Started
+### Task 3: Aggregate throughput cells under the eligibility rule — ✅ Completed
 
 **Phase:** 2 · **Wave:** 1 · **Provides:** C-3 · **Consumes:** C-1 (owner Task 1, committed), C-2 (owner Task 2 — stand in with hand-built events) · **Assumes decision:** OQ-1 — `MIN_THROUGHPUT_OUTPUT_TOKENS = 100`; reversing is a one-constant edit plus cache re-scan.
 
@@ -509,9 +528,17 @@ git commit -m "Aggregate throughput cells with an explicit eligibility rule"
 
 **Memory notes:** session — OQ-1 resolved as default 100 unless the user says otherwise. Repo-memory candidate: "sortCounts sorts records by explicit enumeration — every new Record on UsageCounts must be added there and locked by a key-order test".
 
-**Progress:** —
+**Progress:** ✅ Completed. Success criteria: MET (3/3). Files: `server/src/stats/aggregator.ts`,
+`server/src/stats/aggregator.test.ts`. Controller verification:
+`npm test --prefix server -- run src/stats/aggregator.test.ts` → PASS (22/22). Named mutations all
+proven dead and reverted: M1 model and skill sort removals each failed the key-order assertion; M2
+floor `100→1` failed exclusions; M3 synthetic-predicate removal failed eligibility; M4 eligible
+double-count failed four assertions; M5 transposed output/duration sums failed three assertions.
+C-3 CONFORMS; C-1 consumed from the real declarations; C-2 stand-in is faithful hand-built events
+with positive or absent `durationMs` and no parser import. Scope matches ownership. Commit: `45ab5cb`.
+Deviation: added exact-100 boundary and zero-token-event coverage to directly lock the criteria.
 
-### Task 4: Merge throughput cells in client-side filtering — ⬜ Not Started
+### Task 4: Merge throughput cells in client-side filtering — ✅ Completed
 
 **Phase:** 2 · **Wave:** 1 · **Provides:** C-5 · **Consumes:** C-1 (owner Task 1, committed), C-4 (owner Task 1, committed) · **Assumes decision:** none
 
@@ -604,9 +631,17 @@ git commit -m "Merge throughput cells in client-side filtering"
 
 **Memory notes:** session — none. Repo-memory candidate: none (rates-divide-after-merge is already in CLAUDE.md).
 
-**Progress:** —
+**Progress:** ✅ Completed. Success criteria: MET (3/3). Files: `web/src/api/filterStats.ts`,
+`web/src/api/filterStats.test.ts`. Controller verification:
+`npm test --prefix web -- run src/api/filterStats.test.ts` → PASS (23/23). Named mutations all
+proven dead and reverted: M1 colliding-model first-wins failed the union assertion; M2 omitted
+`skillThroughput` failed fixture and bucket assertions; M3 transposed output/duration failed five
+assertions; M4 zeroed exclusions failed five assertions. C-5 CONFORMS; C-1 and C-4 consumed from the
+real committed types/fixture. The real fixture drives day/week/month and filter tests, and no division
+was introduced in `filterStats.ts`. Scope matches ownership. Commit: `fa4b9f0`. Deviation: added
+explicit project-filter plus day/month coverage to lock all stated granularities.
 
-### Task 5: Show response throughput on the Efficiency page — ⬜ Not Started
+### Task 5: Show response throughput on the Efficiency page — ✅ Completed
 
 **Phase:** 3 · **Wave:** 1 · **Provides:** the page surface (no cross-task contract) · **Consumes:** C-1, C-4 (owner Task 1, committed), C-3 semantics for copy (owner Task 3), C-5 merged buckets (owner Task 4 — stand in with hand-built `SeriesPoint[]`) · **Assumes decision:** OQ-2 — excluded-request coverage is an **always-visible** line on the tile, not a conditional tooltip; reversing is a copy-level edit in this file only.
 
@@ -689,7 +724,16 @@ git commit -m "Show response throughput on the Efficiency page"
 
 **Memory notes:** session — OQ-2 resolved as always-visible; revisit only if the user objects. Repo-memory candidate: none.
 
-**Progress:** —
+**Progress:** ✅ Completed. Success criteria: MET (4/4). Files: `web/src/pages/Efficiency.tsx`,
+`web/src/pages/Efficiency.test.tsx`. Controller verification:
+`npm test --prefix web -- run src/pages/Efficiency.test.tsx` → PASS (20/20). Named mutations all
+proven dead and reverted: M1 transposed division failed three assertions; M2 omitted milliseconds
+conversion failed three; M3 removed coverage failed the required test ID; M4 removed the zero guard
+failed five assertions and rendered `NaN`. C-1/C-4 consumed from the real declarations/fixture; C-3
+copy is accurate; C-5 stand-in is a hand-built `SeriesPoint[]` with no peer implementation import.
+Shared chart chrome and palette are reused. Scope matches ownership. Commit: `de63069`. Deviation:
+added a stronger unequal-volume headline regression; the throughput tile uses the existing local
+`Card` primitives because `StatCard` cannot attach a test ID to the required coverage line.
 
 ---
 
@@ -714,12 +758,18 @@ Beyond the standard gate (full suite vs baseline, `npm run typecheck`, `npm run 
 
 ## Wave summaries
 
-- Wave 0: —
-- Wave 1: —
+- Wave 0: ✅ Task 1 committed as `8375822`. Contracts C-1/C-2 and fixture C-4 conform; controller
+  verification passed 4/4 server and 4/4 web tests. No amendments. The expected transient typecheck
+  and integration-test breakage remains until all Wave 1 consumers land.
+- Wave 1: ✅ Tasks 2–5 committed as `51b2200`, `45ab5cb`, `fa4b9f0`, and `de63069`.
+  Controller-scoped verification passed 35/35 parser/cache, 22/22 aggregator, 23/23 filter/merge,
+  and 20/20 Efficiency tests. All named mutations were independently proven dead and reverted.
+  C-2, C-3, C-5, and C-6 conform; all stand-ins held; no amendments or premise findings.
 
 ## Carry-forward notes
 
-—
+- Wave 0 declarations and fixture are committed at `8375822`; Wave 1 imports the real C-1/C-2 types
+  and C-4 fixture. Do not run the repo-wide typecheck until all Wave 1 tasks are committed.
 
 ## Repo-memory candidates
 
