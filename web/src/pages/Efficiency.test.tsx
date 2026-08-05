@@ -5,6 +5,10 @@ import type { AggregateStats, UsageCounts } from '../api/types';
 import {
   Efficiency,
   cacheHitTrendData,
+  laneThroughputData,
+  modelThroughputData,
+  projectThroughputData,
+  skillThroughputData,
   throughputTrendData,
   toolErrorTrendData,
 } from './Efficiency';
@@ -52,7 +56,7 @@ describe('Efficiency metrics', () => {
   it('shows the volume-weighted response throughput with an always-visible coverage line', () => {
     render(<Efficiency stats={stats} series={series} granularity="day" />);
     expect(metric('metric-throughput')).toContain('2.5');
-    expect(metric('metric-throughput-excluded')).toContain('7');
+    expect(metric('metric-throughput-excluded')).toBe('7 of 8 requests excluded');
     expect(screen.getByText(/includes queue and prompt-processing time/i)).toBeTruthy();
   });
 
@@ -101,6 +105,68 @@ describe('Efficiency metrics', () => {
     ]);
   });
 
+  it('derives exact model throughput values in stable model order', () => {
+    expect(modelThroughputData({
+      slow: { outputTokens: 100, durationMs: 1000, requests: 1, excludedRequests: 0 },
+      fast: { outputTokens: 1000, durationMs: 1000, requests: 1, excludedRequests: 0 },
+    })).toStrictEqual([
+      { model: 'fast', throughput: 1000 },
+      { model: 'slow', throughput: 100 },
+    ]);
+  });
+
+  it('derives exact main and sidechain throughput in fixed lane order', () => {
+    expect(laneThroughputData({
+      mainThroughput: { outputTokens: 1000, durationMs: 2000, requests: 1, excludedRequests: 0 },
+      sidechainThroughput: { outputTokens: 300, durationMs: 1000, requests: 1, excludedRequests: 0 },
+    })).toStrictEqual([
+      { lane: 'Main', throughput: 500 },
+      { lane: 'Sidechain', throughput: 300 },
+    ]);
+  });
+
+  it('derives exact skill throughput values in stable skill order', () => {
+    expect(skillThroughputData({
+      zeta: { outputTokens: 450, durationMs: 3000, requests: 1, excludedRequests: 0 },
+      alpha: { outputTokens: 800, durationMs: 2000, requests: 1, excludedRequests: 0 },
+    })).toStrictEqual([
+      { skill: 'alpha', throughput: 400 },
+      { skill: 'zeta', throughput: 150 },
+    ]);
+  });
+
+  it('merges project sums across days before dividing, retaining zero-duration projects', () => {
+    const base = stats.days['2026-07-09']['-fixture-project'];
+    const days: AggregateStats['days'] = {
+      '2026-07-09': {
+        alpha: {
+          ...base,
+          throughput: { outputTokens: 40, durationMs: 1000, requests: 1, excludedRequests: 0 },
+        },
+        zero: {
+          ...base,
+          throughput: { outputTokens: 0, durationMs: 0, requests: 0, excludedRequests: 1 },
+        },
+      },
+      '2026-07-10': {
+        alpha: {
+          ...base,
+          throughput: { outputTokens: 900, durationMs: 9000, requests: 1, excludedRequests: 0 },
+        },
+        beta: {
+          ...base,
+          throughput: { outputTokens: 100, durationMs: 1000, requests: 1, excludedRequests: 0 },
+        },
+      },
+    };
+
+    expect(projectThroughputData(days)).toStrictEqual([
+      { project: 'alpha', throughput: 94 },
+      { project: 'beta', throughput: 100 },
+      { project: 'zero', throughput: 0 },
+    ]);
+  });
+
   it('weights a merged bucket by volume rather than averaging its days\' ratios', () => {
     // 40% and 100% over wildly different volumes; the naive mean would be 70%.
     const bucket = { ...stats.days['2026-07-09']['-fixture-project'] };
@@ -139,6 +205,54 @@ describe('Efficiency metrics', () => {
     const models = container.querySelector('[data-testid="chart-model-throughput"]') as HTMLElement;
     expect(trend.querySelectorAll('.recharts-bar-rectangle').length).toBe(2);
     expect(models.querySelectorAll('.recharts-bar-rectangle').length).toBe(1);
+  });
+
+  it('renders lane, skill, and project throughput comparisons with one bar per entry', () => {
+    const base = stats.days['2026-07-09']['-fixture-project'];
+    const comparisonStats: AggregateStats = {
+      ...stats,
+      days: {
+        '2026-07-09': {
+          alpha: {
+            ...base,
+            throughput: { outputTokens: 40, durationMs: 1000, requests: 1, excludedRequests: 0 },
+          },
+          zero: {
+            ...base,
+            throughput: { outputTokens: 0, durationMs: 0, requests: 0, excludedRequests: 1 },
+          },
+        },
+        '2026-07-10': {
+          alpha: {
+            ...base,
+            throughput: { outputTokens: 900, durationMs: 9000, requests: 1, excludedRequests: 0 },
+          },
+          beta: {
+            ...base,
+            throughput: { outputTokens: 100, durationMs: 1000, requests: 1, excludedRequests: 0 },
+          },
+        },
+      },
+      totals: {
+        ...stats.totals,
+        mainThroughput: { outputTokens: 1000, durationMs: 2000, requests: 1, excludedRequests: 0 },
+        sidechainThroughput: { outputTokens: 300, durationMs: 1000, requests: 1, excludedRequests: 0 },
+        skillThroughput: {
+          alpha: { outputTokens: 800, durationMs: 2000, requests: 1, excludedRequests: 0 },
+          zeta: { outputTokens: 450, durationMs: 3000, requests: 1, excludedRequests: 0 },
+        },
+      },
+    };
+    const { container } = render(
+      <Efficiency stats={comparisonStats} series={series} granularity="day" />,
+    );
+
+    const lanes = container.querySelector('[data-testid="chart-lane-throughput"]') as HTMLElement;
+    const skills = container.querySelector('[data-testid="chart-skill-throughput"]') as HTMLElement;
+    const projects = container.querySelector('[data-testid="chart-project-throughput"]') as HTMLElement;
+    expect(lanes.querySelectorAll('.recharts-bar-rectangle').length).toBe(2);
+    expect(skills.querySelectorAll('.recharts-bar-rectangle').length).toBe(2);
+    expect(projects.querySelectorAll('.recharts-bar-rectangle').length).toBe(3);
   });
 });
 

@@ -1,6 +1,6 @@
 import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from 'recharts';
 import { Bot, CircleAlert, Gauge, Layers, Split } from 'lucide-react';
-import type { AggregateStats } from '../api/types';
+import type { AggregateStats, ThroughputCounts, UsageCounts } from '../api/types';
 import type { SeriesPoint } from '../api/filterStats';
 import { GRANULARITY_NOUN, type Granularity } from '../api/granularity';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -69,6 +69,68 @@ export function throughputTrendData(series: readonly SeriesPoint[]) {
   }));
 }
 
+function sortedThroughputEntries(entries: Readonly<Record<string, ThroughputCounts>>) {
+  return Object.entries(entries).sort(([left], [right]) => (
+    left < right ? -1 : left > right ? 1 : 0
+  ));
+}
+
+export function modelThroughputData(entries: Readonly<Record<string, ThroughputCounts>>) {
+  return sortedThroughputEntries(entries).map(([model, counts]) => ({
+    model,
+    throughput: throughputRate(counts.outputTokens, counts.durationMs),
+  }));
+}
+
+export function laneThroughputData(
+  totals: Pick<UsageCounts, 'mainThroughput' | 'sidechainThroughput'>,
+) {
+  return [
+    {
+      lane: 'Main',
+      throughput: throughputRate(
+        totals.mainThroughput.outputTokens,
+        totals.mainThroughput.durationMs,
+      ),
+    },
+    {
+      lane: 'Sidechain',
+      throughput: throughputRate(
+        totals.sidechainThroughput.outputTokens,
+        totals.sidechainThroughput.durationMs,
+      ),
+    },
+  ];
+}
+
+export function skillThroughputData(entries: Readonly<Record<string, ThroughputCounts>>) {
+  return sortedThroughputEntries(entries).map(([skill, counts]) => ({
+    skill,
+    throughput: throughputRate(counts.outputTokens, counts.durationMs),
+  }));
+}
+
+export function projectThroughputData(days: AggregateStats['days']) {
+  const projectSums = new Map<string, Pick<ThroughputCounts, 'outputTokens' | 'durationMs'>>();
+
+  for (const dayCells of Object.values(days)) {
+    for (const [project, counts] of Object.entries(dayCells)) {
+      const previous = projectSums.get(project) ?? { outputTokens: 0, durationMs: 0 };
+      projectSums.set(project, {
+        outputTokens: previous.outputTokens + counts.throughput.outputTokens,
+        durationMs: previous.durationMs + counts.throughput.durationMs,
+      });
+    }
+  }
+
+  return [...projectSums.entries()]
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .map(([project, counts]) => ({
+      project,
+      throughput: throughputRate(counts.outputTokens, counts.durationMs),
+    }));
+}
+
 const percentTooltip = { ...TOOLTIP_PROPS, formatter: formatTooltipPercent };
 
 /** Shared axis config for the two rate trends, so both read on the same 0–100 scale. */
@@ -116,10 +178,10 @@ export function Efficiency({ stats, series, granularity }: PageProps) {
   const cacheHitTrend = cacheHitTrendData(series);
   const toolErrorTrend = toolErrorTrendData(series);
   const throughputTrend = throughputTrendData(series);
-  const modelThroughput = Object.entries(totals.modelThroughput).map(([model, counts]) => ({
-    model,
-    throughput: throughputRate(counts.outputTokens, counts.durationMs),
-  }));
+  const modelThroughput = modelThroughputData(totals.modelThroughput);
+  const laneThroughput = laneThroughputData(totals);
+  const skillThroughput = skillThroughputData(totals.skillThroughput);
+  const projectThroughput = projectThroughputData(stats.days);
 
   return (
     <section data-testid="page-efficiency" className="space-y-6">
@@ -204,6 +266,107 @@ export function Efficiency({ stats, series, granularity }: PageProps) {
               fill={CHART_COLORS[0]}
               minPointSize={1}
               radius={[4, 4, 0, 0]}
+              {...SEGMENT_GAP}
+            />
+          </BarChart>
+        </ChartCard>
+
+        <ChartCard
+          testId="chart-lane-throughput"
+          title="Response throughput by lane"
+          description="Main and sidechain end-to-end rates"
+          height={Math.max(240, laneThroughput.length * 34)}
+        >
+          <BarChart
+            data={laneThroughput}
+            layout="vertical"
+            margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
+          >
+            <CartesianGrid {...GRID_PROPS} vertical horizontal={false} />
+            <XAxis type="number" tick={AXIS_TICK} axisLine={false} tickLine={false} />
+            <YAxis
+              type="category"
+              dataKey="lane"
+              tick={AXIS_TICK}
+              axisLine={false}
+              tickLine={false}
+              width={140}
+            />
+            <Tooltip {...TOOLTIP_PROPS} formatter={formatTooltipNumber} />
+            <Bar
+              dataKey="throughput"
+              name="Response throughput (tok/s)"
+              fill={CHART_COLORS[1]}
+              minPointSize={1}
+              radius={[0, 4, 4, 0]}
+              {...SEGMENT_GAP}
+            />
+          </BarChart>
+        </ChartCard>
+
+        <ChartCard
+          testId="chart-skill-throughput"
+          title="Response throughput by skill"
+          description="Volume-weighted end-to-end rate"
+          height={Math.max(240, skillThroughput.length * 34)}
+        >
+          <BarChart
+            data={skillThroughput}
+            layout="vertical"
+            margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
+          >
+            <CartesianGrid {...GRID_PROPS} vertical horizontal={false} />
+            <XAxis type="number" tick={AXIS_TICK} axisLine={false} tickLine={false} />
+            <YAxis
+              type="category"
+              dataKey="skill"
+              tick={AXIS_TICK}
+              axisLine={false}
+              tickLine={false}
+              width={140}
+              tickFormatter={truncateTick}
+            />
+            <Tooltip {...TOOLTIP_PROPS} formatter={formatTooltipNumber} />
+            <Bar
+              dataKey="throughput"
+              name="Response throughput (tok/s)"
+              fill={CHART_COLORS[2]}
+              minPointSize={1}
+              radius={[0, 4, 4, 0]}
+              {...SEGMENT_GAP}
+            />
+          </BarChart>
+        </ChartCard>
+
+        <ChartCard
+          testId="chart-project-throughput"
+          title="Response throughput by project"
+          description="Merged across selected days before deriving the rate"
+          height={Math.max(240, projectThroughput.length * 34)}
+        >
+          <BarChart
+            data={projectThroughput}
+            layout="vertical"
+            margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
+          >
+            <CartesianGrid {...GRID_PROPS} vertical horizontal={false} />
+            <XAxis type="number" tick={AXIS_TICK} axisLine={false} tickLine={false} />
+            <YAxis
+              type="category"
+              dataKey="project"
+              tick={AXIS_TICK}
+              axisLine={false}
+              tickLine={false}
+              width={140}
+              tickFormatter={truncateTick}
+            />
+            <Tooltip {...TOOLTIP_PROPS} formatter={formatTooltipNumber} />
+            <Bar
+              dataKey="throughput"
+              name="Response throughput (tok/s)"
+              fill={CHART_COLORS[3]}
+              minPointSize={1}
+              radius={[0, 4, 4, 0]}
               {...SEGMENT_GAP}
             />
           </BarChart>
