@@ -2,6 +2,7 @@ import type {
   AggregateStats,
   ParsedFile,
   SkillKey,
+  ThroughputCounts,
   TokenTotals,
   TokenUsage,
   UsageCounts,
@@ -9,6 +10,8 @@ import type {
 } from './contracts';
 
 const SYNTHETIC = '<synthetic>';
+
+export const MIN_THROUGHPUT_OUTPUT_TOKENS = 100;
 
 function emptyTokenTotals(): TokenTotals {
   return { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, total: 0 };
@@ -20,6 +23,20 @@ function addUsage(totals: TokenTotals, usage: TokenUsage): void {
   totals.cacheRead += usage.cacheRead;
   totals.cacheCreation += usage.cacheCreation;
   totals.total += usage.input + usage.output + usage.cacheRead + usage.cacheCreation;
+}
+
+function emptyThroughputCounts(): ThroughputCounts {
+  return { outputTokens: 0, durationMs: 0, requests: 0, excludedRequests: 0 };
+}
+
+function addThroughput(
+  counts: ThroughputCounts,
+  outputTokens: number,
+  durationMs: number,
+): void {
+  counts.outputTokens += outputTokens;
+  counts.durationMs += durationMs;
+  counts.requests += 1;
 }
 
 function emptyCounts(): UsageCounts {
@@ -36,6 +53,11 @@ function emptyCounts(): UsageCounts {
     tools: {},
     skills: {},
     skillTokens: {},
+    throughput: emptyThroughputCounts(),
+    mainThroughput: emptyThroughputCounts(),
+    sidechainThroughput: emptyThroughputCounts(),
+    modelThroughput: {},
+    skillThroughput: {},
     agents: {},
   };
 }
@@ -56,6 +78,29 @@ function addToCounts(counts: UsageCounts, event: UsageEvent): void {
       if (event.skill !== undefined) {
         const skillTotals = (counts.skillTokens[event.skill] ??= emptyTokenTotals());
         addUsage(skillTotals, event.usage);
+      }
+      const laneThroughput = event.isSidechain
+        ? counts.sidechainThroughput
+        : counts.mainThroughput;
+      const durationMs = event.durationMs;
+      const isEligibleThroughput = durationMs !== undefined
+        && event.usage.output >= MIN_THROUGHPUT_OUTPUT_TOKENS
+        && event.model !== SYNTHETIC;
+      if (isEligibleThroughput) {
+        addThroughput(counts.throughput, event.usage.output, durationMs);
+        addThroughput(laneThroughput, event.usage.output, durationMs);
+
+        const modelThroughput = (counts.modelThroughput[event.model] ??= emptyThroughputCounts());
+        addThroughput(modelThroughput, event.usage.output, durationMs);
+        if (event.skill !== undefined) {
+          const skillThroughput = (
+            counts.skillThroughput[event.skill] ??= emptyThroughputCounts()
+          );
+          addThroughput(skillThroughput, event.usage.output, durationMs);
+        }
+      } else {
+        counts.throughput.excludedRequests += 1;
+        laneThroughput.excludedRequests += 1;
       }
       if (event.isSidechain && event.agentType !== undefined) {
         const agentCounts = (counts.agents[event.agentType] ??= { runs: 0, tokens: emptyTokenTotals() });
@@ -109,6 +154,8 @@ function sortCounts(counts: UsageCounts): UsageCounts {
     tools: sortRecord(counts.tools),
     skills: sortRecord(counts.skills),
     skillTokens: sortRecord(counts.skillTokens),
+    modelThroughput: sortRecord(counts.modelThroughput),
+    skillThroughput: sortRecord(counts.skillThroughput),
     agents: sortRecord(counts.agents),
   };
 }

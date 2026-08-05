@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
-import type { TranscriptFile, UsageEvent } from './contracts';
+import type { ParsedFile, TranscriptFile, UsageEvent } from './contracts';
 import { parseTranscript } from './parser';
 
 const TZ = 'Asia/Hong_Kong';
@@ -36,6 +36,14 @@ const dayFor = (tz: string) =>
 
 const tokens = (events: UsageEvent[]) =>
   events.filter((e): e is Extract<UsageEvent, { kind: 'token' }> => e.kind === 'token');
+
+const MAIN: TranscriptFile = {
+  path: '/r/-p/s.jsonl', project: '-p', kind: 'main', mtimeMs: 1, size: 1,
+};
+const line = (o: object) => JSON.stringify(o);
+const tokenOf = (parsed: ParsedFile, key: string) =>
+  parsed.events.find((e) => e.kind === 'token' && e.dedupeKey === key) as
+    Extract<UsageEvent, { kind: 'token' }>;
 
 function sum(events: UsageEvent[]) {
   return tokens(events).reduce(
@@ -99,6 +107,100 @@ describe('token extraction and dedupe', () => {
     expect(t.every((e) => e.agentId === 'afixture0000000001')).toBe(true);
     expect(t.every((e) => e.agentType === 'general-purpose')).toBe(true);
     expect(tokens(parseMain().events).every((e) => e.isSidechain === false)).toBe(true);
+  });
+});
+
+describe('durationMs derivation', () => {
+  it('uses a timestamped attachment line as an anchor candidate', () => {
+    const parsed = parseTranscript(MAIN, [
+      line({ type: 'attachment', timestamp: '2026-08-05T00:00:00.000Z' }),
+      line({ type: 'assistant', requestId: 'r1', timestamp: '2026-08-05T00:00:03.000Z',
+        message: { model: 'claude-opus-5', usage: { output_tokens: 300 } } }),
+    ], 'UTC');
+    expect(tokenOf(parsed, 'r1').durationMs).toBe(3000);
+  });
+
+  it('brackets a request from the last eligible preceding line to its own last line', () => {
+    const parsed = parseTranscript(MAIN, [
+      line({ type: 'user', timestamp: '2026-08-05T00:00:00.000Z', sessionId: 's' }),
+      line({ type: 'assistant', requestId: 'r1', timestamp: '2026-08-05T00:00:02.000Z',
+        message: { model: 'claude-opus-5', usage: { input_tokens: 1, output_tokens: 500 } } }),
+      line({ type: 'assistant', requestId: 'r1', timestamp: '2026-08-05T00:00:05.000Z',
+        message: { model: 'claude-opus-5', usage: { input_tokens: 1, output_tokens: 500 } } }),
+    ], 'UTC');
+    expect(tokenOf(parsed, 'r1').durationMs).toBe(5000);
+  });
+
+  it('keeps the first-sight anchor across an interleaved foreign line', () => {
+    const parsed = parseTranscript(MAIN, [
+      line({ type: 'user', timestamp: '2026-08-05T00:00:00.000Z', sessionId: 's' }),
+      line({ type: 'assistant', requestId: 'r1', timestamp: '2026-08-05T00:00:02.000Z',
+        message: { model: 'claude-opus-5', usage: { output_tokens: 400 } } }),
+      line({ type: 'user', timestamp: '2026-08-05T00:00:03.000Z',
+        message: { content: [{ type: 'tool_result', tool_use_id: 't1' }] } }),
+      line({ type: 'assistant', requestId: 'r1', timestamp: '2026-08-05T00:00:06.000Z',
+        message: { model: 'claude-opus-5', usage: { output_tokens: 400 } } }),
+    ], 'UTC');
+    expect(tokenOf(parsed, 'r1').durationMs).toBe(6000);
+  });
+
+  it('never anchors to bookkeeping lines or clears the candidate on timestamp-less lines', () => {
+    const parsed = parseTranscript(MAIN, [
+      line({ type: 'user', timestamp: '2026-08-05T00:00:00.000Z', sessionId: 's' }),
+      line({ type: 'queue-operation', timestamp: '2026-08-05T00:00:09.000Z' }),
+      line({ type: 'mode' }),
+      line({ type: 'assistant', requestId: 'r1', timestamp: '2026-08-05T00:00:02.000Z',
+        message: { model: 'claude-opus-5', usage: { output_tokens: 300 } } }),
+    ], 'UTC');
+    expect(tokenOf(parsed, 'r1').durationMs).toBe(2000);
+  });
+
+  it.each(['file-history-delta', 'pr-link'] as const)(
+    'does not use an excluded %s line as an anchor',
+    (type) => {
+      const parsed = parseTranscript(MAIN, [
+        line({ type: 'user', timestamp: '2026-08-05T00:00:00.000Z', sessionId: 's' }),
+        line({ type, timestamp: '2026-08-05T00:00:09.000Z' }),
+        line({ type: 'assistant', requestId: 'r1', timestamp: '2026-08-05T00:00:02.000Z',
+          message: { model: 'claude-opus-5', usage: { output_tokens: 300 } } }),
+      ], 'UTC');
+      expect(tokenOf(parsed, 'r1').durationMs).toBe(2000);
+    },
+  );
+
+  it('omits durationMs for the first request in a file and for non-positive intervals', () => {
+    const first = parseTranscript(MAIN, [
+      line({ type: 'assistant', requestId: 'r1', timestamp: '2026-08-05T00:00:02.000Z',
+        message: { model: 'claude-opus-5', usage: { output_tokens: 300 } } }),
+    ], 'UTC');
+    expect(tokenOf(first, 'r1').durationMs).toBeUndefined();
+
+    const negative = parseTranscript(MAIN, [
+      line({ type: 'user', timestamp: '2026-08-05T00:00:07.000Z', sessionId: 's' }),
+      line({ type: 'assistant', requestId: 'r1', timestamp: '2026-08-05T00:00:02.000Z',
+        message: { model: 'claude-opus-5', usage: { output_tokens: 300 } } }),
+    ], 'UTC');
+    expect(tokenOf(negative, 'r1').durationMs).toBeUndefined();
+  });
+
+  it('omits durationMs for an exactly zero interval', () => {
+    const parsed = parseTranscript(MAIN, [
+      line({ type: 'user', timestamp: '2026-08-05T00:00:02.000Z', sessionId: 's' }),
+      line({ type: 'assistant', requestId: 'r1', timestamp: '2026-08-05T00:00:02.000Z',
+        message: { model: 'claude-opus-5', usage: { output_tokens: 300 } } }),
+    ], 'UTC');
+    expect(tokenOf(parsed, 'r1').durationMs).toBeUndefined();
+  });
+
+  it('anchors a later request to the previous request\'s last assistant line', () => {
+    const parsed = parseTranscript(MAIN, [
+      line({ type: 'user', timestamp: '2026-08-05T00:00:00.000Z', sessionId: 's' }),
+      line({ type: 'assistant', requestId: 'r1', timestamp: '2026-08-05T00:00:02.000Z',
+        message: { model: 'claude-opus-5', usage: { output_tokens: 200 } } }),
+      line({ type: 'assistant', requestId: 'r2', timestamp: '2026-08-05T00:00:06.000Z',
+        message: { model: 'claude-opus-5', usage: { output_tokens: 200 } } }),
+    ], 'UTC');
+    expect(tokenOf(parsed, 'r2').durationMs).toBe(4000);
   });
 });
 

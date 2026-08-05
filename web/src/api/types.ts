@@ -10,6 +10,16 @@ export interface ToolCounts { calls: number; errors: number }
 export interface AgentCounts { runs: number; tokens: TokenTotals }
 export interface SkillKey { name: string; source: 'skill-tool' | 'slash-command' }
 
+/** Four mergeable sums; the rate is derived at render time as outputTokens / (durationMs / 1000).
+ *  outputTokens / durationMs / requests count ELIGIBLE requests only (see the eligibility rule
+ *  on UsageCounts.throughput); excludedRequests counts token events that did not qualify. */
+export interface ThroughputCounts {
+  outputTokens: number;
+  durationMs: number;
+  requests: number;
+  excludedRequests: number;
+}
+
 export interface UsageCounts {
   tokens: TokenTotals;
   mainTokens: TokenTotals;
@@ -27,6 +37,17 @@ export interface UsageCounts {
    *  `attributionSkill` records no source, so unlike `skills` this cannot be split into
    *  `skill-tool` / `slash-command` — one entry covers both trigger paths for a name. */
   skillTokens: Record<string, TokenTotals>;
+  /** Response throughput of eligible requests (end-to-end: includes queue, prompt processing
+   *  and TTFT — not raw decode speed). throughput.requests + throughput.excludedRequests
+   *  equals the number of deduped token events aggregated into this cell. */
+  throughput: ThroughputCounts;
+  mainThroughput: ThroughputCounts;
+  sidechainThroughput: ThroughputCounts;
+  /** Keyed on normalized model name; entries exist only for models with ≥1 eligible request.
+   *  excludedRequests is always 0 here — per-model exclusions are not tracked. */
+  modelThroughput: Record<string, ThroughputCounts>;
+  /** Keyed on bare skill name (like skillTokens); eligible requests with a skill only. */
+  skillThroughput: Record<string, ThroughputCounts>;
   agents: Record<string, AgentCounts>;
 }
 

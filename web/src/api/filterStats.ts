@@ -1,4 +1,4 @@
-import type { AggregateStats, SkillKey, TokenTotals, UsageCounts } from './types';
+import type { AggregateStats, SkillKey, ThroughputCounts, TokenTotals, UsageCounts } from './types';
 import { bucketKey, type Granularity } from './granularity';
 
 /**
@@ -30,6 +30,19 @@ function addTokenTotals(a: TokenTotals, b: TokenTotals): TokenTotals {
   };
 }
 
+function zeroThroughputCounts(): ThroughputCounts {
+  return { outputTokens: 0, durationMs: 0, requests: 0, excludedRequests: 0 };
+}
+
+function addThroughputCounts(a: ThroughputCounts, b: ThroughputCounts): ThroughputCounts {
+  return {
+    outputTokens: a.outputTokens + b.outputTokens,
+    durationMs: a.durationMs + b.durationMs,
+    requests: a.requests + b.requests,
+    excludedRequests: a.excludedRequests + b.excludedRequests,
+  };
+}
+
 /** Merges a set of UsageCounts cells (e.g. the project cells of one day, or all selected cells) into one. */
 function mergeUsageCounts(cells: readonly UsageCounts[]): UsageCounts {
   const result: UsageCounts = {
@@ -46,6 +59,11 @@ function mergeUsageCounts(cells: readonly UsageCounts[]): UsageCounts {
     skills: {},
     skillTokens: {},
     agents: {},
+    throughput: zeroThroughputCounts(),
+    mainThroughput: zeroThroughputCounts(),
+    sidechainThroughput: zeroThroughputCounts(),
+    modelThroughput: {},
+    skillThroughput: {},
   };
 
   for (const cell of cells) {
@@ -57,6 +75,9 @@ function mergeUsageCounts(cells: readonly UsageCounts[]): UsageCounts {
     result.toolErrors += cell.toolErrors;
     result.skillInvocations += cell.skillInvocations;
     result.agentRuns += cell.agentRuns;
+    result.throughput = addThroughputCounts(result.throughput, cell.throughput);
+    result.mainThroughput = addThroughputCounts(result.mainThroughput, cell.mainThroughput);
+    result.sidechainThroughput = addThroughputCounts(result.sidechainThroughput, cell.sidechainThroughput);
 
     for (const [model, totals] of Object.entries(cell.models)) {
       result.models[model] = addTokenTotals(result.models[model] ?? zeroTokenTotals(), totals);
@@ -70,6 +91,18 @@ function mergeUsageCounts(cells: readonly UsageCounts[]): UsageCounts {
     }
     for (const [skill, totals] of Object.entries(cell.skillTokens)) {
       result.skillTokens[skill] = addTokenTotals(result.skillTokens[skill] ?? zeroTokenTotals(), totals);
+    }
+    for (const [model, counts] of Object.entries(cell.modelThroughput)) {
+      result.modelThroughput[model] = addThroughputCounts(
+        result.modelThroughput[model] ?? zeroThroughputCounts(),
+        counts,
+      );
+    }
+    for (const [skill, counts] of Object.entries(cell.skillThroughput)) {
+      result.skillThroughput[skill] = addThroughputCounts(
+        result.skillThroughput[skill] ?? zeroThroughputCounts(),
+        counts,
+      );
     }
     for (const [agent, counts] of Object.entries(cell.agents)) {
       const prev = result.agents[agent] ?? { runs: 0, tokens: zeroTokenTotals() };
