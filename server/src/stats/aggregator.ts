@@ -82,20 +82,21 @@ function addToCounts(counts: UsageCounts, event: UsageEvent): void {
       const laneThroughput = event.isSidechain
         ? counts.sidechainThroughput
         : counts.mainThroughput;
-      const isEligibleThroughput = event.durationMs !== undefined
+      const durationMs = event.durationMs;
+      const isEligibleThroughput = durationMs !== undefined
         && event.usage.output >= MIN_THROUGHPUT_OUTPUT_TOKENS
         && event.model !== SYNTHETIC;
       if (isEligibleThroughput) {
-        addThroughput(counts.throughput, event.usage.output, event.durationMs);
-        addThroughput(laneThroughput, event.usage.output, event.durationMs);
+        addThroughput(counts.throughput, event.usage.output, durationMs);
+        addThroughput(laneThroughput, event.usage.output, durationMs);
 
         const modelThroughput = (counts.modelThroughput[event.model] ??= emptyThroughputCounts());
-        addThroughput(modelThroughput, event.usage.output, event.durationMs);
+        addThroughput(modelThroughput, event.usage.output, durationMs);
         if (event.skill !== undefined) {
           const skillThroughput = (
             counts.skillThroughput[event.skill] ??= emptyThroughputCounts()
           );
-          addThroughput(skillThroughput, event.usage.output, event.durationMs);
+          addThroughput(skillThroughput, event.usage.output, durationMs);
         }
       } else {
         counts.throughput.excludedRequests += 1;
