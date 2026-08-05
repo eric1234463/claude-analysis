@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { AGGREGATE_STATS_KEYS, type ParsedFile, type UsageEvent } from './contracts';
+import {
+  AGGREGATE_STATS_KEYS,
+  type AggregateStats,
+  type ParsedFile,
+  type UsageEvent,
+} from './contracts';
 import { aggregate } from './aggregator';
 
 const AT = '2026-08-01T00:00:00.000Z';
@@ -8,6 +13,22 @@ const usage = (input: number, output: number, cacheRead = 0, cacheCreation = 0) 
 
 const file = (events: UsageEvent[], malformedLines = 0, ignoredLines = 0): ParsedFile =>
   ({ events, malformedLines, ignoredLines });
+
+const tokenEvent = (
+  overrides: Partial<Extract<UsageEvent, { kind: 'token' }>> = {},
+): Extract<UsageEvent, { kind: 'token' }> => ({
+  kind: 'token',
+  day: '2026-08-05',
+  project: '-p',
+  model: 'claude-opus-5',
+  dedupeKey: overrides.dedupeKey ?? 'r1',
+  usage: usage(1, 500),
+  isSidechain: false,
+  durationMs: 5000,
+  ...overrides,
+});
+
+const throughputCell = (stats: AggregateStats) => stats.days['2026-08-05']['-p'];
 
 const mainFile = file(
   [
@@ -157,6 +178,119 @@ describe('dimensions', () => {
 
   it('leaves skillTokens empty when nothing was attributed', () => {
     expect(all().totals.skillTokens).toStrictEqual({});
+  });
+});
+
+describe('throughput aggregation', () => {
+  it('accumulates an eligible main event into throughput, mainThroughput and modelThroughput', () => {
+    const stats = aggregate([file([tokenEvent()])], AT);
+    const expected = {
+      outputTokens: 500,
+      durationMs: 5000,
+      requests: 1,
+      excludedRequests: 0,
+    };
+
+    expect(throughputCell(stats).throughput).toStrictEqual(expected);
+    expect(throughputCell(stats).mainThroughput).toStrictEqual(expected);
+    expect(throughputCell(stats).sidechainThroughput).toStrictEqual({
+      outputTokens: 0,
+      durationMs: 0,
+      requests: 0,
+      excludedRequests: 0,
+    });
+    expect(throughputCell(stats).modelThroughput).toStrictEqual({ 'claude-opus-5': expected });
+    expect(throughputCell(stats).skillThroughput).toStrictEqual({});
+  });
+
+  it('credits an eligible sidechain event with a skill to sidechain and skill cells', () => {
+    const stats = aggregate([
+      file([tokenEvent({ isSidechain: true, skill: 'brainstorming' })]),
+    ], AT);
+
+    expect(throughputCell(stats).sidechainThroughput.requests).toBe(1);
+    expect(throughputCell(stats).mainThroughput.requests).toBe(0);
+    expect(throughputCell(stats).skillThroughput.brainstorming).toStrictEqual({
+      outputTokens: 500,
+      durationMs: 5000,
+      requests: 1,
+      excludedRequests: 0,
+    });
+  });
+
+  it('excludes each ineligible kind without creating model or skill entries', () => {
+    const stats = aggregate([file([
+      tokenEvent({ dedupeKey: 'a', durationMs: undefined, skill: 'no-bracket' }),
+      tokenEvent({
+        dedupeKey: 'b',
+        usage: usage(1, 50),
+        skill: 'below-floor',
+      }),
+      tokenEvent({ dedupeKey: 'c', model: '<synthetic>', skill: 'synthetic' }),
+    ])], AT);
+
+    expect(throughputCell(stats).throughput).toStrictEqual({
+      outputTokens: 0,
+      durationMs: 0,
+      requests: 0,
+      excludedRequests: 3,
+    });
+    expect(throughputCell(stats).modelThroughput).toStrictEqual({});
+    expect(throughputCell(stats).skillThroughput).toStrictEqual({});
+  });
+
+  it('accepts an event exactly at the minimum output-token threshold', () => {
+    const stats = aggregate([file([tokenEvent({ usage: usage(1, 100) })])], AT);
+
+    expect(throughputCell(stats).throughput).toStrictEqual({
+      outputTokens: 100,
+      durationMs: 5000,
+      requests: 1,
+      excludedRequests: 0,
+    });
+  });
+
+  it('holds the requests plus exclusions identity in day cells and totals', () => {
+    const stats = aggregate([file([
+      tokenEvent({ dedupeKey: 'a' }),
+      tokenEvent({ dedupeKey: 'b', durationMs: undefined }),
+      tokenEvent({ dedupeKey: 'c', isSidechain: true }),
+    ])], AT);
+    const dayCell = throughputCell(stats);
+
+    expect(dayCell.throughput.requests + dayCell.throughput.excludedRequests).toBe(3);
+    expect(stats.totals.throughput.requests + stats.totals.throughput.excludedRequests).toBe(3);
+    expect(
+      stats.totals.mainThroughput.requests
+      + stats.totals.mainThroughput.excludedRequests
+      + stats.totals.sidechainThroughput.requests
+      + stats.totals.sidechainThroughput.excludedRequests,
+    ).toBe(3);
+  });
+
+  it('leaves throughput cells zeroed when a file contains no token events', () => {
+    const stats = aggregate([file([
+      { kind: 'session-start', day: '2026-08-05', project: '-p', sessionId: 's1' },
+    ])], AT);
+    const zero = { outputTokens: 0, durationMs: 0, requests: 0, excludedRequests: 0 };
+
+    expect(throughputCell(stats).throughput).toStrictEqual(zero);
+    expect(throughputCell(stats).mainThroughput).toStrictEqual(zero);
+    expect(throughputCell(stats).sidechainThroughput).toStrictEqual(zero);
+    expect(throughputCell(stats).modelThroughput).toStrictEqual({});
+    expect(throughputCell(stats).skillThroughput).toStrictEqual({});
+  });
+
+  it('sorts modelThroughput and skillThroughput keys like every other record', () => {
+    const stats = aggregate([file([
+      tokenEvent({ dedupeKey: 'a', model: 'zeta-model', skill: 'zeta-skill' }),
+      tokenEvent({ dedupeKey: 'b', model: 'alpha-model', skill: 'alpha-skill' }),
+    ])], AT);
+
+    expect(Object.keys(throughputCell(stats).modelThroughput))
+      .toStrictEqual(['alpha-model', 'zeta-model']);
+    expect(Object.keys(throughputCell(stats).skillThroughput))
+      .toStrictEqual(['alpha-skill', 'zeta-skill']);
   });
 });
 
