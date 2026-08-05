@@ -2,11 +2,12 @@
 type: plan
 title: "Token Output Throughput Metric Implementation Plan"
 description: "Derives per-request generation speed (tokens/second) from transcript timestamps and surfaces it as a volume-weighted, mergeable metric across models, sidechains, skills and projects."
-status: approved
+status: completed
 owner: "eric1234463@gmail.com"
 ticket: "DASH-0000"
 created: "2026-08-05"
-tasks: []
+tasks:
+  - "docs/tasks/2026-08-05-token-throughput-metric-tasks.md"
 wiki: false
 ---
 
@@ -19,6 +20,8 @@ wiki: false
 **Architecture:** Claude Code records no response duration and no TTFT, so throughput is *derived*: each API request is bracketed by the timestamp of the last transcript line written before it began and the timestamp of its own final line. The parser computes that bracket in its existing single forward pass and hangs `durationMs` on the token event it already emits; the aggregator rolls duration and output tokens into four-number `ThroughputCounts` cells that merge by addition, exactly like the existing token totals. The frontend divides after merging — the same discipline the cache-hit and tool-error rates already follow — so a week's rate is weighted by volume rather than being the mean of its days' rates.
 
 **Branch:** feature/DASH-0000-token-throughput-metric — carried through task breakdown and execution unchanged
+
+**Completed:** 2026-08-05
 
 ---
 
@@ -181,21 +184,23 @@ Add a headline throughput tile and a time-bucketed throughput chart alongside th
 
 ## Open Questions
 
-1. **[NEEDS REVIEW] OQ-1 — minimum output size for inclusion.** Exclude requests below 100 output tokens, or pick a different threshold? *Affects Phase 2 only, as a single constant in the aggregator.* At 100 tokens the sample keeps 99.0% of main requests and 99.9% of main output tokens, while sidechains keep 83% of requests and 94.3% of output tokens — the gap is because subagent responses skew short and overhead-dominated. A lower threshold raises coverage and drags the rate down toward the fixed-cost floor; a higher one measures steady-state generation more cleanly and excludes more. Reversing it is a one-line change plus a re-scan.
-2. **[NEEDS REVIEW] OQ-2 — how prominently to show `excludedRequests`.** A always-visible coverage line, or only a tooltip when exclusions exceed some share of requests? *Affects Phase 3 only.* The requirement is that a partial measurement never reads as complete; where exactly that disclosure sits is a UI judgement best made once the tile exists.
+1. **[RESOLVED] OQ-1 — minimum output size for inclusion.** Use a 100-output-token floor. It retains nearly all main-request output while excluding short, overhead-dominated responses, and is implemented as `MIN_THROUGHPUT_OUTPUT_TOKENS` with exact-boundary coverage. _Resolved during task execution, 2026-08-05._
+2. **[RESOLVED] OQ-2 — how prominently to show `excludedRequests`.** Show an always-visible coverage line on the throughput tile, formatted as excluded requests over total measured-plus-excluded requests. _Resolved during task execution, 2026-08-05._
 
 ## Success Criteria
 
-- [ ] The dashboard reports output throughput over the selected range and projects, at daily, weekly and monthly granularity, with the weekly figure weighted by volume rather than being the mean of its days' rates.
-- [ ] Throughput is broken out by model, main vs sidechain, skill, and project.
-- [ ] Running against real `~/.claude/projects` data produces a main-transcript headline near 61 tok/s, with `excludedRequests` a small and visible fraction of `requests`.
-- [ ] Requests with interleaved lines produce exactly one throughput record each; no request contributes twice and none is silently dropped.
-- [ ] Every pre-existing number on the dashboard is unchanged, and `AGGREGATE_STATS_KEYS` still has eleven entries.
-- [ ] Pre-change cache entries cannot be served, in this checkout or any other.
+- [x] The dashboard reports output throughput over the selected range and projects, at daily, weekly and monthly granularity, with the weekly figure weighted by volume rather than being the mean of its days' rates. `filterStats` tests cover date/project narrowing and day/week/month merges; page tests prove division happens after sums are merged.
+- [x] Throughput is broken out by model, main vs sidechain, skill, and project. The Efficiency page renders all four comparisons from exact, stable-order helper outputs.
+- [x] Running against real `~/.claude/projects` data produces a main-transcript headline near 61 tok/s, with `excludedRequests` a small and visible fraction of `requests`. Final verification measured 63.4 tok/s with 284 of 12,724 main requests excluded (2.23%); the tile always exposes coverage.
+- [x] Requests with interleaved lines produce exactly one throughput record each; no request contributes twice and none is silently dropped. Parser tests cover frozen first-sight anchors across interleaving, dedupe identity, attachment/assistant anchors, each bookkeeping exclusion, and non-positive intervals.
+- [x] Every pre-existing number on the dashboard is unchanged, and `AGGREGATE_STATS_KEYS` still has eleven entries. The fixture edit was additions-only, both packages pin eleven keys, and the final 229-test suite passed against a green baseline.
+- [x] Pre-change cache entries cannot be served, in this checkout or any other. `fileCacheKey` now appends `:v2`, with exact old/new-format regression tests.
 
 ## References
 
 - `docs/plans/2026-08-01-claude-usage-dashboard.md` — the Decisions section behind the pipeline shape, the per-file dedupe rule, and the "bucket days once, in the aggregator" invariant this plan inherits.
 - `docs/tasks/2026-08-01-claude-usage-dashboard-tasks.md` — the contract-registry and Final Gate pattern this work's task breakdown should follow.
 - `CLAUDE.md` — "Invariants that tests lock", in particular per-file token dedupe, sidechains as the sole source of subagent tokens, and the rates-divide-after-merging rule for time-bucketed charts.
+- `docs/contracts/2026-08-05-token-throughput-metric-get-stats-contract.md` — frontend-facing contract for the cached aggregate response.
+- `docs/contracts/2026-08-05-token-throughput-metric-refresh-stats-contract.md` — frontend-facing contract for the refresh response.
 - Measurements underpinning this plan were taken 2026-08-05 over the 40 most-recently-modified main transcripts (2,850 requests) and the 120 most-recently-modified sidechain transcripts (3,890 requests) in `~/.claude/projects`, on Claude Code 2.1.222. They are a sample of recent usage, not the full corpus.

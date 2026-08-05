@@ -2,7 +2,7 @@
 type: tasks
 title: "Token Output Throughput Metric — Task Breakdown"
 description: "Contract-first single-wave breakdown for deriving tokens/second from transcript timestamps and surfacing it on the Efficiency page."
-status: in-progress
+status: completed
 owner: "eric1234463@gmail.com"
 ticket: "DASH-0000"
 created: "2026-08-05"
@@ -14,6 +14,7 @@ wiki: false
 
 **Branch:** feature/DASH-0000-token-throughput-metric
 **Source plan:** `docs/plans/2026-08-05-token-throughput-metric.md`
+**Completed:** 2026-08-05
 
 **Baseline captured before dispatch**
 - Measured: current working tree, clean at d9919d2
@@ -415,6 +416,12 @@ C-2 and C-6 CONFORM; anchor capture precedes advancement and the early continue,
 the existing file-wide dedupe key, and parser purity is preserved (no fs, clock, or ambient-zone
 lookup). Scope matches ownership. Commit: `51b2200`. Deviations: none.
 
+**Final Gate follow-up:** Adversarial review identified three unisolated anchor cases: non-assistant
+`attachment` anchors, separate `file-history-delta` / `pr-link` exclusions, and a zero-duration
+interval. Commit `00b17d0` adds exact coverage for all three without changing the production
+semantics. Controller mutations independently proved each assertion fails if the corresponding
+anchor or strict-positive rule is weakened; final parser verification passed 28/28.
+
 ### Task 3: Aggregate throughput cells under the eligibility rule — ✅ Completed
 
 **Phase:** 2 · **Wave:** 1 · **Provides:** C-3 · **Consumes:** C-1 (owner Task 1, committed), C-2 (owner Task 2 — stand in with hand-built events) · **Assumes decision:** OQ-1 — `MIN_THROUGHPUT_OUTPUT_TOKENS = 100`; reversing is a one-constant edit plus cache re-scan.
@@ -537,6 +544,11 @@ double-count failed four assertions; M5 transposed output/duration sums failed t
 C-3 CONFORMS; C-1 consumed from the real declarations; C-2 stand-in is faithful hand-built events
 with positive or absent `durationMs` and no parser import. Scope matches ownership. Commit: `45ab5cb`.
 Deviation: added exact-100 boundary and zero-token-event coverage to directly lock the criteria.
+
+**Final Gate follow-up:** The first repo-wide typecheck exposed that a boolean eligibility variable
+did not preserve TypeScript's narrowing of optional `event.durationMs`. Commit `567b4fd` captures the
+duration in a local before the eligibility check, preserving the same runtime rule while satisfying
+the compiler. The server typecheck and all 22 aggregator tests passed after the correction.
 
 ### Task 4: Merge throughput cells in client-side filtering — ✅ Completed
 
@@ -735,13 +747,21 @@ Shared chart chrome and palette are reused. Scope matches ownership. Commit: `de
 added a stronger unequal-volume headline regression; the throughput tile uses the existing local
 `Card` primitives because `StatCard` cannot attach a test ID to the required coverage line.
 
+**Final Gate follow-up:** Whole-diff review found that the task brief's page surface omitted three
+breakdowns required by the source plan (main vs sidechain, skill, and project), and the original tests
+did not assert the exact model quotient or coverage denominator. Commit `25335f4` adds exact stable-
+order helpers and charts for lane, skill, and project, strengthens the model and coverage assertions,
+and proves project throughput divides only after cross-day sums are merged. Controller mutations for
+hardcoded model rate, excluded-only denominator, and mean-of-project-cell rates all failed as
+required; final Efficiency verification passed 25/25.
+
 ---
 
 ## Final Gate additions
 
 Beyond the standard gate (full suite vs baseline, `npm run typecheck`, `npm run build`, amendment propagation, two reviewers over the run diff):
 
-1. **Real-data verification** (the plan's un-fakeable seam — no repo test wires real parser output into the real aggregator):
+1. **Real-data verification beyond the fixture integration test** (the plan's real-corpus seam):
    ```bash
    DASHBOARD_CACHE_FILE=/tmp/tp-verify-cache.json npm run dev -w server &
    sleep 5
@@ -756,6 +776,42 @@ Beyond the standard gate (full suite vs baseline, `npm run typecheck`, `npm run 
    Expect the main-transcript rate in the **40–90 tok/s** band (measured weighted mean 61.2 on 2026-08-05 data). A rate in the hundreds means grouping regressed to contiguous runs; a rate near zero means stale cache entries were served (the `:v2` bump failed); `excludedRequests` should be a small fraction of `requests` for main-dominated data. Kill the dev server afterwards and delete `/tmp/tp-verify-cache.json`.
 2. Tick the plan's Success Criteria with this evidence.
 
+## Final Gate
+
+**Baseline:** `d9919d2`, clean tree, `npm test` green before dispatch. The final suite is compared
+against that green baseline, so every final failure would be a regression.
+
+**Verification at final HEAD before documentation closeout (`25335f4`):**
+
+| Check | Result |
+|---|---|
+| `npm test` | PASS — server 98/98, web 131/131, 229/229 total |
+| `npm run typecheck` | PASS — both workspaces |
+| `npm run build` | PASS — both workspaces; Vite emitted only its existing >500 kB chunk-size warning |
+| Contract/amendment audit | PASS — C-1 through C-6 conform, no amendments, no stand-in divergence |
+| API contract sync | PASS — `GET /api/stats` and `POST /api/stats/refresh` each have a one-endpoint contract matching the code |
+
+The first Final Gate typecheck found one implementation issue: the aggregator's boolean eligibility
+variable lost optional-duration narrowing. It was fixed in `567b4fd`, then the complete suite,
+typecheck, and build were rerun successfully.
+
+**Real-data verification:** a fresh cache and `POST /api/stats/refresh` over the configured
+`~/.claude/projects` corpus produced 67.1 tok/s overall (19,287 eligible, 1,550 excluded), 63.4 tok/s
+for main transcripts (12,440 eligible, 284 excluded; 2.23% excluded), and 77.3 tok/s for sidechains.
+The main result is inside the expected 40–90 tok/s band. The dev server was stopped and the 9.3 MB
+temporary cache was moved to Trash.
+
+**Whole-diff review over `d9919d2..567b4fd`:**
+
+- Integration reviewer: one Important finding — the UI omitted lane, skill, and project breakdowns
+  required by the plan. Fixed in `25335f4`; reviewer confirmed closure. No Critical or Minor findings.
+- Adversarial/mutation reviewer: six Important coverage/requirement gaps spanning parser anchor edge
+  cases, zero duration, exact model quotient, exact coverage denominator, and the omitted UI
+  breakdowns. Fixed in `00b17d0` and `25335f4`; reviewer confirmed all findings closed.
+
+**Plan success criteria:** 6/6 met. Evidence is recorded in
+`docs/plans/2026-08-05-token-throughput-metric.md`.
+
 ## Wave summaries
 
 - Wave 0: ✅ Task 1 committed as `8375822`. Contracts C-1/C-2 and fixture C-4 conform; controller
@@ -764,19 +820,36 @@ Beyond the standard gate (full suite vs baseline, `npm run typecheck`, `npm run 
 - Wave 1: ✅ Tasks 2–5 committed as `51b2200`, `45ab5cb`, `fa4b9f0`, and `de63069`.
   Controller-scoped verification passed 35/35 parser/cache, 22/22 aggregator, 23/23 filter/merge,
   and 20/20 Efficiency tests. All named mutations were independently proven dead and reverted.
-  C-2, C-3, C-5, and C-6 conform; all stand-ins held; no amendments or premise findings.
+  C-2, C-3, C-5, and C-6 conform; all stand-ins held; no amendments or premise findings. Final Gate
+  corrections landed as `567b4fd` (type narrowing), `00b17d0` (parser edge coverage), and `25335f4`
+  (complete UI breakdowns and exact quotient/coverage tests).
 
 ## Carry-forward notes
 
-- Wave 0 declarations and fixture are committed at `8375822`; Wave 1 imports the real C-1/C-2 types
-  and C-4 fixture. Do not run the repo-wide typecheck until all Wave 1 tasks are committed.
+- Wave 0 declarations and fixture are committed at `8375822`; every Wave 1 consumer and Final Gate
+  correction is now committed. The repo-wide suite, typecheck, and build are green with no open
+  execution items.
 
 ## Repo-memory candidates
 
-Collected from task memory notes; verify before persisting:
+Collected from task memory notes and verified during the Final Gate. They were not persisted because
+this run did not include an explicit request to update memory:
 - Bookkeeping line types (`queue-operation`, `file-history-delta`, `pr-link`) carry out-of-order timestamps — never anchor time-derived metrics on them (Task 2).
 - `sortCounts` enumerates its records explicitly — every new `Record` on `UsageCounts` must be added there and locked by a key-order test (Task 3).
 
 ## Final summary
 
-—
+Completed all 5 tasks on 2026-08-05; none were blocked or skipped.
+
+- **Implementation commits:** `8375822`, `51b2200`, `45ab5cb`, `fa4b9f0`, `de63069`.
+- **Execution/review commits:** `4cc37ab`, `567b4fd`, `00b17d0`, `25335f4`.
+- **API contract commit:** `3dd80f6`.
+- **Contract amendments:** none.
+- **Final verification:** 229/229 tests, both workspace typechecks, and both builds pass against the
+  green `d9919d2` baseline; real main throughput measured 63.4 tok/s with 2.23% excluded.
+- **Review outcome:** all integration and adversarial findings closed; both reviewers confirmed.
+- **Plan outcome:** 6/6 success criteria met.
+- **Deviations resolved:** the original Task 5 brief under-scoped three required breakdowns, and the
+  initial aggregator expression needed a type-narrowing correction. Both were fixed before closeout.
+- **Execution interruption:** the working branch was changed externally after the first Final Gate;
+  execution paused without edits and resumed only after the user restored the correct branch.
