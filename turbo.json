@@ -2,7 +2,7 @@
   "$schema": "https://turborepo.dev/schema.json",
   "globalDependencies": ["web/src/api/__fixtures__/aggregate-stats.json"],
   "tasks": {
-    "dev": { "cache": false, "persistent": true },
+    "dev": { "cache": false, "persistent": true, "passThroughEnv": ["PORT", "WEB_PORT"] },
     "build": { "outputs": ["dist/**"] },
     "test": {},
     "typecheck": {}
