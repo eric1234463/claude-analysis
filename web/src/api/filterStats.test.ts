@@ -181,3 +181,57 @@ describe('usageSeries', () => {
     expect(usageSeries(spread, 'month').map((d) => d.bucket)).toStrictEqual(['2026-07']);
   });
 });
+
+describe('throughput merging', () => {
+  it('sums all four fields across the fixture through the real merge', () => {
+    const merged = filterStats(stats, {});
+    expect(merged.totals.throughput)
+      .toStrictEqual({ outputTokens: 153, durationMs: 62000, requests: 1, excludedRequests: 7 });
+    expect(merged.totals.mainThroughput)
+      .toStrictEqual({ outputTokens: 0, durationMs: 0, requests: 0, excludedRequests: 6 });
+    expect(merged.totals.modelThroughput).toStrictEqual({
+      'claude-opus-4-8': { outputTokens: 153, durationMs: 62000, requests: 1, excludedRequests: 0 },
+    });
+    expect(merged.totals.skillThroughput).toStrictEqual({
+      brainstorming: { outputTokens: 153, durationMs: 62000, requests: 1, excludedRequests: 0 },
+    });
+  });
+
+  it('drops excluded-day cells from totals when filtered out', () => {
+    const byDate = filterStats(stats, { from: '2026-07-10' });
+    expect(byDate.totals.throughput)
+      .toStrictEqual({ outputTokens: 0, durationMs: 0, requests: 0, excludedRequests: 1 });
+    const byProject = filterStats(stats, { projects: ['-fixture-project-two'] });
+    expect(byProject.totals.throughput)
+      .toStrictEqual({ outputTokens: 0, durationMs: 0, requests: 0, excludedRequests: 1 });
+  });
+
+  it('buckets a week by summing, so the rate is volume-weighted, not a mean of day rates', () => {
+    const days = usageSeries(stats, 'day');
+    expect(days.map(({ counts }) => counts.throughput)).toStrictEqual([
+      { outputTokens: 153, durationMs: 62000, requests: 1, excludedRequests: 6 },
+      { outputTokens: 0, durationMs: 0, requests: 0, excludedRequests: 1 },
+    ]);
+    const [week] = usageSeries(stats, 'week');
+    expect(week.bucket).toBe('2026-07-06');
+    expect(week.counts.throughput)
+      .toStrictEqual({ outputTokens: 153, durationMs: 62000, requests: 1, excludedRequests: 7 });
+    const [month] = usageSeries(stats, 'month');
+    expect(month.counts.throughput)
+      .toStrictEqual({ outputTokens: 153, durationMs: 62000, requests: 1, excludedRequests: 7 });
+  });
+
+  it('union-merges model entries when two cells share a model', () => {
+    const dayOne = stats.days['2026-07-09']['-fixture-project'];
+    const clash: AggregateStats = {
+      ...stats,
+      days: {
+        '2026-07-09': { '-a': dayOne },
+        '2026-07-10': { '-b': { ...dayOne } },
+      },
+    };
+    const merged = filterStats(clash, {});
+    expect(merged.totals.modelThroughput['claude-opus-4-8'])
+      .toStrictEqual({ outputTokens: 306, durationMs: 124000, requests: 2, excludedRequests: 0 });
+  });
+});
