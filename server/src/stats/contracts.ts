@@ -27,7 +27,15 @@ export interface TokenUsage {
 
 export type UsageEvent =
   | { kind: 'token'; day: string; project: string; model: string; dedupeKey: string;
-      usage: TokenUsage; isSidechain: boolean; agentId?: string; agentType?: string;
+      usage: TokenUsage;
+      /** Wall-clock ms from the timestamp of the last ELIGIBLE line preceding this request's
+       *  first usage-bearing line to the timestamp of the request's last usage-bearing line.
+       *  Eligible = carries a string `timestamp` AND its `type` is not one of
+       *  'queue-operation' | 'file-history-delta' | 'pr-link' (bookkeeping lines written out of
+       *  chronological order). Present ONLY when the bracket resolved to a strictly positive
+       *  interval; absent for the first request in a file and for non-positive intervals. */
+      durationMs?: number
+      isSidechain: boolean; agentId?: string; agentType?: string;
       /** Bare skill name from the line's `attributionSkill`, when the turn ran inside a skill.
        *  Carries no source — see UsageCounts.skillTokens. */
       skill?: string }
@@ -52,6 +60,16 @@ export interface ToolCounts { calls: number; errors: number }
 export interface AgentCounts { runs: number; tokens: TokenTotals }
 export interface SkillKey { name: string; source: 'skill-tool' | 'slash-command' }
 
+/** Four mergeable sums; the rate is derived at render time as outputTokens / (durationMs / 1000).
+ *  outputTokens / durationMs / requests count ELIGIBLE requests only (see the eligibility rule
+ *  on UsageCounts.throughput); excludedRequests counts token events that did not qualify. */
+export interface ThroughputCounts {
+  outputTokens: number;
+  durationMs: number;
+  requests: number;
+  excludedRequests: number;
+}
+
 export interface UsageCounts {
   tokens: TokenTotals;
   mainTokens: TokenTotals;
@@ -69,6 +87,17 @@ export interface UsageCounts {
    *  `attributionSkill` records no source, so unlike `skills` this cannot be split into
    *  `skill-tool` / `slash-command` — one entry covers both trigger paths for a name. */
   skillTokens: Record<string, TokenTotals>;
+  /** Response throughput of eligible requests (end-to-end: includes queue, prompt processing
+   *  and TTFT — not raw decode speed). throughput.requests + throughput.excludedRequests
+   *  equals the number of deduped token events aggregated into this cell. */
+  throughput: ThroughputCounts;
+  mainThroughput: ThroughputCounts;
+  sidechainThroughput: ThroughputCounts;
+  /** Keyed on normalized model name; entries exist only for models with ≥1 eligible request.
+   *  excludedRequests is always 0 here — per-model exclusions are not tracked. */
+  modelThroughput: Record<string, ThroughputCounts>;
+  /** Keyed on bare skill name (like skillTokens); eligible requests with a skill only. */
+  skillThroughput: Record<string, ThroughputCounts>;
   agents: Record<string, AgentCounts>;
 }
 

@@ -45,6 +45,11 @@ describe('AGGREGATE_STATS_KEYS', () => {
         tools: {},
         skills: {},
         skillTokens: {},
+        throughput: { outputTokens: 0, durationMs: 0, requests: 0, excludedRequests: 0 },
+        mainThroughput: { outputTokens: 0, durationMs: 0, requests: 0, excludedRequests: 0 },
+        sidechainThroughput: { outputTokens: 0, durationMs: 0, requests: 0, excludedRequests: 0 },
+        modelThroughput: {},
+        skillThroughput: {},
         agents: {},
       },
     };
