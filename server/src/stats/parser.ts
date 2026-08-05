@@ -2,6 +2,7 @@ import type { ParsedFile, TokenUsage, TranscriptFile, UsageEvent } from './contr
 
 const MODEL_SUFFIX_RE = /\[[^\]]*\]$/;
 const COMMAND_NAME_RE = /<command-name>([^<]*)<\/command-name>/g;
+const NON_ANCHOR_TYPES = new Set(['queue-operation', 'file-history-delta', 'pr-link']);
 
 interface RawContentBlock {
   type?: string;
@@ -56,6 +57,12 @@ interface TokenEvent {
   agentId?: string;
   agentType?: string;
   skill?: string;
+  durationMs?: number;
+}
+
+interface RequestTiming {
+  startTimestamp?: string;
+  endTimestamp?: string;
 }
 
 /** Pure: no fs, no clock, no ambient timezone. Never throws.
@@ -79,8 +86,10 @@ export function parseTranscript(
   const tokenEvents = new Map<string, TokenEvent>();
   const otherEvents: UsageEvent[] = [];
   const toolUseIdToName = new Map<string, string>();
+  const requestTimings = new Map<string, RequestTiming>();
   let earliestTs: string | undefined;
   let earliestLine: RawLine | undefined;
+  let anchorCandidate: string | undefined;
 
   for (const raw of lines) {
     if (raw.trim() === '') continue;
@@ -98,6 +107,23 @@ export function parseTranscript(
         earliestTs = parsed.timestamp;
         earliestLine = parsed;
       }
+    }
+
+    const usageKey = parsed.type === 'assistant' && parsed.message?.usage
+      ? parsed.requestId ?? parsed.uuid
+      : undefined;
+    if (typeof usageKey === 'string') {
+      const endTimestamp = typeof parsed.timestamp === 'string' ? parsed.timestamp : undefined;
+      const timing = requestTimings.get(usageKey);
+      if (timing === undefined) {
+        requestTimings.set(usageKey, { startTimestamp: anchorCandidate, endTimestamp });
+      } else {
+        timing.endTimestamp = endTimestamp;
+      }
+    }
+
+    if (typeof parsed.timestamp === 'string' && !NON_ANCHOR_TYPES.has(parsed.type ?? '')) {
+      anchorCandidate = parsed.timestamp;
     }
 
     if (parsed.type !== 'assistant' && parsed.type !== 'user') {
@@ -201,6 +227,16 @@ export function parseTranscript(
   }
 
   const events: UsageEvent[] = [];
+
+  for (const [key, event] of tokenEvents) {
+    const timing = requestTimings.get(key);
+    if (timing?.startTimestamp !== undefined && timing.endTimestamp !== undefined) {
+      const durationMs = Date.parse(timing.endTimestamp) - Date.parse(timing.startTimestamp);
+      if (durationMs > 0) {
+        event.durationMs = durationMs;
+      }
+    }
+  }
 
   if (earliestTs !== undefined && earliestLine !== undefined) {
     const day = dayOf(earliestTs, timeZone);

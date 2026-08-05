@@ -27,7 +27,12 @@ describe('fileCacheKey', () => {
 
   it('is path, mtime, size and time zone joined by colons', () => {
     expect(fileCacheKey(base, 'Asia/Hong_Kong'))
-      .toBe('/r/-a/s.jsonl:1700000000000:42:Asia/Hong_Kong');
+      .toBe('/r/-a/s.jsonl:1700000000000:42:Asia/Hong_Kong:v2');
+  });
+
+  it('no longer matches the pre-throughput key format, so stale entries miss once', () => {
+    expect(fileCacheKey(base, 'Asia/Hong_Kong'))
+      .not.toBe('/r/-a/s.jsonl:1700000000000:42:Asia/Hong_Kong');
   });
 
   it('changes when any single input changes', () => {
