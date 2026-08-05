@@ -2,7 +2,7 @@
 type: tasks
 title: "Token Output Throughput Metric — Task Breakdown"
 description: "Contract-first single-wave breakdown for deriving tokens/second from transcript timestamps and surfacing it on the Efficiency page."
-status: not-started
+status: in-progress
 owner: "eric1234463@gmail.com"
 ticket: "DASH-0000"
 created: "2026-08-05"
@@ -15,6 +15,12 @@ wiki: false
 **Branch:** feature/DASH-0000-token-throughput-metric
 **Source plan:** `docs/plans/2026-08-05-token-throughput-metric.md`
 
+**Baseline captured before dispatch**
+- Measured: current working tree, clean at ced3eb6
+- Command: `npm test`
+- Exit code: `0` — the suite was **GREEN** at baseline; any failure during this run is a regression
+- Full log: `/var/folders/1c/sm4q4wb55597_fdm_b4tqjdr0000gn/T//baseline-ced3eb6.log`
+
 ## Source Plan Summary
 
 Claude Code transcripts record no response duration or TTFT, so output throughput (tokens/second) is *derived*: each API request is bracketed by the timestamp of the last eligible transcript line written before its first usage-bearing line and the timestamp of its own last usage-bearing line. The parser computes that bracket in its existing single forward pass and hangs `durationMs` on the token event it already emits; the aggregator rolls output tokens and duration into four-number `ThroughputCounts` cells that merge by addition; the frontend divides after merging, so a week's rate is volume-weighted. Requests that don't qualify (no anchor, non-positive interval, output below a floor, `<synthetic>` model) are *counted as excluded*, never silently dropped or floored. The change also versions the per-file cache key — transcripts are append-only, so without it stale entries would show zero throughput for nearly all history forever.
@@ -24,6 +30,8 @@ Claude Code transcripts record no response duration or TTFT, so output throughpu
 One parallel wave after a small Wave 0. Agents implement and test against the Contract Registry below, standing in fakes for anything they don't own; they run **no git commands**. The controller reviews each returning task's diff, re-runs its verification, re-proves its named mutations, stages its exact paths, and commits. Contracts are frozen at dispatch; only the controller amends one (see the amendment rule in the registry). There is no mid-run review gate — one Final Gate at the end runs the full suite, type check, and build against baseline, plus the real-data verification in [Final Gate additions](#final-gate-additions).
 
 > ⚠️ **The tree intentionally fails `npm run typecheck` between the Wave 0 commit and the last Wave 1 commit.** Wave 0 adds *required* fields to `UsageCounts` in both packages; every existing full-literal constructor (aggregator, filterStats, page tests) is type-broken until its owning Wave 1 task updates it. Vitest transpiles without type checking, so all file-scoped test runs stay green throughout. Do not run the type check per task — it is the Final Gate's check by design.
+>
+> ⚠️ **Likewise, `server/test/stats.integration.test.ts` ("deep-equals the hand-computed aggregate", line 75) is red between the Wave 0 commit and the moment BOTH Task 2 and Task 3 are committed** — the fixture gains throughput fields at Wave 0, and the real pipeline only produces them once the parser and aggregator land. That file needs no edit; it goes green by itself. The Final Gate's suite-vs-baseline comparison is where it must be green again.
 
 ## Preconditions
 
@@ -36,7 +44,7 @@ All verified 2026-08-05 on branch `feature/DASH-0000-token-throughput-metric` (`
 | `sortCounts` | Spreads `...counts` then sorts each record explicitly (`server/src/stats/aggregator.ts:105-114`) — new records pass through **unsorted with no type error** unless added. Task 3 carries a regression lock for this. |
 | `mergeUsageCounts` | Module-private, not exported (`web/src/api/filterStats.ts:34`); tested only through the exported `filterStats()`/`usageSeries()`. Task 4's tests go through those exports. |
 | Efficiency page conventions | Named exports `Efficiency, cacheHitTrendData, toolErrorTrendData`; props `{ stats, series, granularity }` (`web/src/pages/Efficiency.tsx:22-26`); tiles read via `data-testid="metric-*"`; chart titles follow `"<name> per ${GRANULARITY_NOUN[granularity]}"` (`Efficiency.test.tsx:87`); shared chrome from `@/components/charts` (do not restyle). |
-| Divergence from plan — fixture seam | The plan calls the shared fixture "not fakeable … proved once, at the end, against real files". In fact `stats.module.test.ts` serves the fixture through a **mocked pipeline** (`{ run: async () => FIXTURE }`, `stats.module.test.ts:70`) and asserts only pre-existing headline numbers and top-level keys — **it needs no edit**, and no repo test wires real parser output into the real aggregator (there is no `pipeline.test.ts`; checked by listing `server/src/stats/`). Consequence: no Wave 2 task; the wired-pipeline proof moves to the Final Gate's real-data verification, and C-2's Real binding is an explicit `none`. |
+| Fixture seam — corrected at dispatch (controller finding, 2026-08-05) | The breakdown's first draft claimed no repo test wires real parser output into the real aggregator; that was **false** — the author audited `server/src/stats/` and missed `server/test/`. `server/test/stats.integration.test.ts` runs the **real** scanner→parser→aggregator pipeline over `server/test/fixtures/projects` and **deep-equals the full aggregate against the shared web fixture** (`stats.integration.test.ts:75-80`). Consequences, all applied below: C-4's values are not invented — they are the exact output of the derivation over those fixture transcripts (computed by script, verified against a hand-trace: 1 eligible request of 8, headline 2.5 tok/s); C-2/C-3/C-4 have a **real** Real binding; the integration test itself needs **no edit** but is transiently red mid-run (see Execution Model warning). `stats.module.test.ts` separately serves the fixture through a mocked pipeline (`stats.module.test.ts:70`) and asserts only pre-existing numbers — no edit. `server/test/app.module.test.ts` was also audited: no `UsageCounts` construction, no edit. |
 | Commit convention | Imperative sentence, no ticket prefix (`git log --oneline -5`). |
 | Docs linter | None (`CLAUDE.md`: "There is no lint script"). Frontmatter validated as parseable YAML instead. |
 | Data distributions (measured 2026-08-05, 40 main + 120 sidechain most-recent transcripts) | Eligibility at a 100-output-token floor keeps **99.0% of main requests** (99.9% of output tokens) but only **19.3% of sidechain requests** (94.3% of tokens) — exclusion is *rare* on main and *the majority case* on sidechains, so fixtures must exercise both branches. `requestId` absent on 8/14,424 usage-bearing lines (0.06%) — the `?? uuid` fallback is real but negligible. 15.7% of lines carry no timestamp (7 bookkeeping types); 0 usage-bearing lines lack one. 20.5% of multi-line requests have a foreign line interleaved. Every negative interval in the sample traced to `queue-operation`/`file-history-delta`/`pr-link` anchors; excluding those three eliminated all of them. |
@@ -103,7 +111,7 @@ Semantics the producer must honor: the request's start anchor is **frozen at fir
 
 - **Owner:** Task 2 (parser implements the semantics; Task 1 materializes the declaration verbatim in Wave 0). **Consumers:** Task 3.
 - **Stand-in for Task 3:** construct token `UsageEvent` literals directly with/without `durationMs` — the existing `aggregator.test.ts` pattern (it already builds `ParsedFile.events` by hand and never calls the parser). Fake behaviour: `durationMs` absent means "no bracket resolved"; when present it is a positive integer; no other values occur.
-- **Real binding:** `none` — the repo has no pipeline-level test wiring real parser output into the real aggregator (no `pipeline.test.ts` exists; the seam is two pure functions sharing this declared type). The wired path is exercised once by the Final Gate's real-data verification.
+- **Real binding:** `server/test/stats.integration.test.ts:75-80` — the deep-equal of the real pipeline's output over `server/test/fixtures/projects` against the shared fixture drives real parser durations through the real aggregator into the exact C-4 values. It needs no edit and goes green when Tasks 2 and 3 are both committed.
 
 ### C-3 — Eligibility and accumulation rule
 
@@ -117,19 +125,19 @@ Owned semantics, implemented in the aggregator's `token` case:
 
 - **Owner:** Task 3. **Consumers:** Task 1 (the fixture values obey this rule), Task 5 (page derivation and copy).
 - **Stand-in:** the rule is pure arithmetic over declared types; Task 1 applies it by hand to the fixture story, Task 5 consumes pre-computed fixture cells.
-- **Real binding:** Task 3's own tests drive it through the real `aggregate()`.
+- **Real binding:** Task 3's own tests drive it through the real `aggregate()`, and `stats.integration.test.ts:75-80` re-proves it end-to-end against C-4.
 
 ### C-4 — Fixture throughput values
 
-`web/src/api/__fixtures__/aggregate-stats.json` gains the five fields in **every** `UsageCounts` cell (two day/project cells + `totals`), with these exact values — additions only, no existing number changes. Story: the `-fixture-project` sidechain request carried the cell's full sidechain output (156 ≥ 100 → eligible, 2,600 ms → **60.0 tok/s**, ran inside `brainstorming`); its main request's 27 output tokens sit below the floor → excluded; `-fixture-project-two`'s single request (11 output tokens) → excluded. This deliberately exercises both branches — per the measured distributions, exclusion is rare on main transcripts (~1%) and the majority case on sidechains (~81%).
+`web/src/api/__fixtures__/aggregate-stats.json` gains the five fields in **every** `UsageCounts` cell (two day/project cells + `totals`), with these exact values — additions only, no existing number changes. **These values are not invented:** `stats.integration.test.ts:75-80` deep-equals the real pipeline's output over `server/test/fixtures/projects` against this JSON, so they are the derivation's exact output over those transcripts, computed by script and verified against a hand-trace (controller, 2026-08-05). The story the transcripts tell: only sidechain `req_side_G` qualifies — 153 output tokens (≥ 100) over a 62,000 ms bracket anchored on the sidechain's opening user line, inside `brainstorming`. Everything else is excluded: `req_main_A` and `req_two_A` are each preceded only by a timestamp-less `last-prompt` line (no anchor), and the remaining five events (including the `<synthetic>` one, uuid-keyed `u-syn-1`) all sit below the 100-token floor. Both branches are exercised, matching the real distributions (exclusion ~1% on main, ~81% on sidechains — the fixture skews small-output, hence exclusion-heavy).
 
 ```jsonc
 // days["2026-07-09"]["-fixture-project"]  (after "skillTokens", before "agents"):
-"throughput":          { "outputTokens": 156, "durationMs": 2600, "requests": 1, "excludedRequests": 1 },
-"mainThroughput":      { "outputTokens": 0,   "durationMs": 0,    "requests": 0, "excludedRequests": 1 },
-"sidechainThroughput": { "outputTokens": 156, "durationMs": 2600, "requests": 1, "excludedRequests": 0 },
-"modelThroughput":     { "claude-opus-4-8": { "outputTokens": 156, "durationMs": 2600, "requests": 1, "excludedRequests": 0 } },
-"skillThroughput":     { "brainstorming":   { "outputTokens": 156, "durationMs": 2600, "requests": 1, "excludedRequests": 0 } },
+"throughput":          { "outputTokens": 153, "durationMs": 62000, "requests": 1, "excludedRequests": 6 },
+"mainThroughput":      { "outputTokens": 0,   "durationMs": 0,     "requests": 0, "excludedRequests": 5 },
+"sidechainThroughput": { "outputTokens": 153, "durationMs": 62000, "requests": 1, "excludedRequests": 1 },
+"modelThroughput":     { "claude-opus-4-8": { "outputTokens": 153, "durationMs": 62000, "requests": 1, "excludedRequests": 0 } },
+"skillThroughput":     { "brainstorming":   { "outputTokens": 153, "durationMs": 62000, "requests": 1, "excludedRequests": 0 } },
 
 // days["2026-07-10"]["-fixture-project-two"]:
 "throughput":          { "outputTokens": 0, "durationMs": 0, "requests": 0, "excludedRequests": 1 },
@@ -139,18 +147,18 @@ Owned semantics, implemented in the aggregator's `token` case:
 "skillThroughput":     {},
 
 // totals (each field the sum of the two cells above):
-"throughput":          { "outputTokens": 156, "durationMs": 2600, "requests": 1, "excludedRequests": 2 },
-"mainThroughput":      { "outputTokens": 0,   "durationMs": 0,    "requests": 0, "excludedRequests": 2 },
-"sidechainThroughput": { "outputTokens": 156, "durationMs": 2600, "requests": 1, "excludedRequests": 0 },
-"modelThroughput":     { "claude-opus-4-8": { "outputTokens": 156, "durationMs": 2600, "requests": 1, "excludedRequests": 0 } },
-"skillThroughput":     { "brainstorming":   { "outputTokens": 156, "durationMs": 2600, "requests": 1, "excludedRequests": 0 } }
+"throughput":          { "outputTokens": 153, "durationMs": 62000, "requests": 1, "excludedRequests": 7 },
+"mainThroughput":      { "outputTokens": 0,   "durationMs": 0,     "requests": 0, "excludedRequests": 6 },
+"sidechainThroughput": { "outputTokens": 153, "durationMs": 62000, "requests": 1, "excludedRequests": 1 },
+"modelThroughput":     { "claude-opus-4-8": { "outputTokens": 153, "durationMs": 62000, "requests": 1, "excludedRequests": 0 } },
+"skillThroughput":     { "brainstorming":   { "outputTokens": 153, "durationMs": 62000, "requests": 1, "excludedRequests": 0 } }
 ```
 
-Headline check: `156 / (2600/1000) = 60.0` tok/s; coverage 1 eligible of 3 token events.
+Headline check: `153 / (62000/1000) = 2.4677… → "2.5"` tok/s; identity: 1 + 7 = 8 deduped token events across the three transcripts. Per-request trace (file · key · output · bracket): `req_main_A` 20 · no anchor; `req_main_B` 2 · 34,200,000 ms; `req_main_C` 1 · 55,000 ms; `u-syn-1` 0 · 60,000 ms (`<synthetic>`); `req_main_D` 4 · 60,000 ms; `req_side_G` **153 · 62,000 ms · eligible**; `req_side_H` 3 · 58,000 ms; `req_two_A` 11 · no anchor.
 
 - **Owner:** Task 1 (Wave 0). **Consumers:** Task 4 (asserts merged fixture totals through real `usageSeries`), Task 5 (page tests render from it).
 - **Stand-in:** none — Wave 0 lands the real file.
-- **Real binding:** Task 4's `usageSeries(fixture, 'week')` test drives these values through the real merge.
+- **Real binding:** two-sided — `stats.integration.test.ts:75-80` proves the real pipeline *produces* these values; Task 4's `usageSeries(fixture, 'week')` test proves the real merge *consumes* them.
 
 ### C-5 — Web merge semantics
 
@@ -194,7 +202,7 @@ _— none yet — (controller fills in; each entry: contract ID, what changed, w
 | 4 (W1) | `web/src/api/filterStats.ts`, `web/src/api/filterStats.test.ts` |
 | 5 (W1) | `web/src/pages/Efficiency.tsx`, `web/src/pages/Efficiency.test.tsx` |
 
-`stats.module.test.ts`, `types.test.ts`, `pipeline.ts`, `granularity.ts`, `charts.tsx`, `Overview.tsx` need **no edits** (verified individually; module test asserts only pre-existing numbers and top-level keys, `usageSeries` delegates all merging to `mergeUsageCounts`, pages read shared chart chrome without restyling).
+`stats.module.test.ts`, `server/test/stats.integration.test.ts`, `server/test/app.module.test.ts`, `types.test.ts`, `pipeline.ts`, `granularity.ts`, `charts.tsx`, `Overview.tsx` need **no edits** (verified individually; the module and app tests assert only pre-existing numbers and top-level keys, the integration deep-equal self-heals once Tasks 2+3 land because the fixture carries the derivation's exact output, `usageSeries` delegates all merging to `mergeUsageCounts`, pages read shared chart chrome without restyling).
 
 ---
 
@@ -233,7 +241,7 @@ Expected: all tests pass in both runs.
 **Controller review checklist:**
 - [ ] Diff the `ThroughputCounts` + field block between `contracts.ts` and `types.ts` — byte-identical.
 - [ ] Fixture diff shows additions only; `git diff --word-diff` has no changed existing tokens.
-- [ ] Fixture totals are the sums of the two day cells for all four fields of all five entries (spot-check `excludedRequests`: 1 + 1 = 2).
+- [ ] Fixture totals are the sums of the two day cells for all four fields of all five entries (spot-check `excludedRequests`: 6 + 1 = 7).
 - [ ] Both verification runs pass.
 
 **Commit (controller runs after review):**
@@ -522,14 +530,14 @@ describe('throughput merging', () => {
   it('sums all four fields across the fixture through the real merge', () => {
     const merged = filterStats(stats, {});   // no filter: both days, both projects
     expect(merged.totals.throughput)
-      .toStrictEqual({ outputTokens: 156, durationMs: 2600, requests: 1, excludedRequests: 2 });
+      .toStrictEqual({ outputTokens: 153, durationMs: 62000, requests: 1, excludedRequests: 7 });
     expect(merged.totals.mainThroughput)
-      .toStrictEqual({ outputTokens: 0, durationMs: 0, requests: 0, excludedRequests: 2 });
+      .toStrictEqual({ outputTokens: 0, durationMs: 0, requests: 0, excludedRequests: 6 });
     expect(merged.totals.modelThroughput).toStrictEqual({
-      'claude-opus-4-8': { outputTokens: 156, durationMs: 2600, requests: 1, excludedRequests: 0 },
+      'claude-opus-4-8': { outputTokens: 153, durationMs: 62000, requests: 1, excludedRequests: 0 },
     });
     expect(merged.totals.skillThroughput).toStrictEqual({
-      brainstorming: { outputTokens: 156, durationMs: 2600, requests: 1, excludedRequests: 0 },
+      brainstorming: { outputTokens: 153, durationMs: 62000, requests: 1, excludedRequests: 0 },
     });
   });
 
@@ -544,8 +552,8 @@ describe('throughput merging', () => {
     const [week] = usageSeries(stats, 'week');
     expect(week.bucket).toBe('2026-07-06');
     expect(week.counts.throughput)
-      .toStrictEqual({ outputTokens: 156, durationMs: 2600, requests: 1, excludedRequests: 2 });
-    // Weighted: 156 / 2.6 = 60 tok/s. A mean-of-day-rates implementation cannot produce
+      .toStrictEqual({ outputTokens: 153, durationMs: 62000, requests: 1, excludedRequests: 7 });
+    // Weighted: 153 / 62 s. A mean-of-day-rates implementation cannot produce
     // these sums because it would have to divide before merging.
   });
 
@@ -561,7 +569,7 @@ describe('throughput merging', () => {
     };
     const merged = filterStats(clash, {});
     expect(merged.totals.modelThroughput['claude-opus-4-8'])
-      .toStrictEqual({ outputTokens: 312, durationMs: 5200, requests: 2, excludedRequests: 0 });
+      .toStrictEqual({ outputTokens: 306, durationMs: 124000, requests: 2, excludedRequests: 0 });
   });
 });
 ```
@@ -569,7 +577,7 @@ describe('throughput merging', () => {
 **Mutations to reject** (apply, watch the named test fail, revert, report output; unprovable → report and stop):
 1. **Hardcoded/first-wins:** make the throughput merge keep the first cell's value instead of adding → the union-merge test expects `requests: 2`, gets `1`.
 2. **Dropped field:** skip `skillThroughput` in `mergeUsageCounts` → the fixture-sums test's `skillThroughput` expectation gets `{}`.
-3. **Transposed:** swap `outputTokens` and `durationMs` in the throughput adder → the fixture-sums test's strict equality fails (156/2600 swap).
+3. **Transposed:** swap `outputTokens` and `durationMs` in the throughput adder → the fixture-sums test's strict equality fails (153/62000 swap).
 4. **Excluded not merged:** sum only the three "value" fields and drop `excludedRequests` → the filtered test expects `excludedRequests: 1`, gets `0` — the coverage disclosure silently vanishes, which is exactly the dishonesty the plan forbids.
 
 **Verification:**
@@ -617,13 +625,13 @@ If the code below contradicts the success criteria, the criteria win — impleme
 ```ts
   it('shows the volume-weighted response throughput with an always-visible coverage line', () => {
     render(<Efficiency stats={stats} series={series} granularity="day" />);
-    expect(metric('metric-throughput')).toContain('60.0');       // 156 / 2.6s
-    expect(metric('metric-throughput-excluded')).toContain('2'); // of 3 requests
+    expect(metric('metric-throughput')).toContain('2.5');        // 153 / 62s = 2.4677…
+    expect(metric('metric-throughput-excluded')).toContain('7'); // of 8 requests
   });
 
   it('derives the per-bucket throughput rate, zero-guarding empty buckets', () => {
     expect(throughputTrendData(series)).toStrictEqual([
-      { bucket: '2026-07-09', throughput: 60 },
+      { bucket: '2026-07-09', throughput: 153 / 62 },
       { bucket: '2026-07-10', throughput: 0 },
     ]);
   });
@@ -651,8 +659,8 @@ If the code below contradicts the success criteria, the criteria win — impleme
 ```
 
 **Mutations to reject** (apply, watch the named test fail, revert, report output; unprovable → report and stop):
-1. **Transposed division:** compute `durationMs / outputTokens` → the tile test expects `'60.0'`, gets `16.7`.
-2. **Dropped unit conversion:** divide by `durationMs` without the `/1000` → expects `'60.0'`, gets `0.1`.
+1. **Transposed division:** compute `durationMs / outputTokens` → the tile test expects `'2.5'`, gets `405.2` (and the trend strict-equality fails on 62000/153).
+2. **Dropped unit conversion:** divide by `durationMs` without the `/1000` → expects `'2.5'`, gets `0.0`, and the trend test's `153 / 62` becomes `153 / 62000` → strict equality fails.
 3. **Hidden coverage:** remove the excluded line → `getByTestId('metric-throughput-excluded')` throws in the tile test.
 4. **Missing zero guard:** remove the `durationMs === 0` guard → the empty-state render contains `NaN` → the not-toContain assertion fails, and `throughputTrendData(series)` returns `NaN` for the 07-10 bucket → strict equality fails.
 
