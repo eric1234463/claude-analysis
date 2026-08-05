@@ -14,11 +14,17 @@
   },
   "scripts": {
     "dev": "turbo run dev",
+    "dev:ports": "PORT=3100 WEB_PORT=9000 turbo run dev",
+    "bg:start": "pm2 start ecosystem.config.cjs",
+    "bg:stop": "pm2 delete ecosystem.config.cjs",
+    "bg:logs": "pm2 logs",
+    "bg:status": "pm2 status",
     "build": "turbo run build",
     "test": "turbo run test -- run",
     "typecheck": "turbo run typecheck"
   },
   "devDependencies": {
+    "pm2": "^7.0.3",
     "turbo": "^2.10.8"
   }
 }
