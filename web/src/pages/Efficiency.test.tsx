@@ -2,7 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import fixture from '../api/__fixtures__/aggregate-stats.json';
 import type { AggregateStats, UsageCounts } from '../api/types';
-import { Efficiency, cacheHitTrendData, toolErrorTrendData } from './Efficiency';
+import {
+  Efficiency,
+  cacheHitTrendData,
+  throughputTrendData,
+  toolErrorTrendData,
+} from './Efficiency';
 
 const stats = fixture as AggregateStats;
 const series: Array<{ bucket: string; counts: UsageCounts }> = [
@@ -44,6 +49,26 @@ describe('Efficiency metrics', () => {
     expect(within(screen.getByTestId('list-agent-types')).getByText('general-purpose')).toBeTruthy();
   });
 
+  it('shows the volume-weighted response throughput with an always-visible coverage line', () => {
+    render(<Efficiency stats={stats} series={series} granularity="day" />);
+    expect(metric('metric-throughput')).toContain('2.5');
+    expect(metric('metric-throughput-excluded')).toContain('7');
+    expect(screen.getByText(/includes queue and prompt-processing time/i)).toBeTruthy();
+  });
+
+  it('weights the headline throughput by merged token and duration sums', () => {
+    const weightedStats: AggregateStats = {
+      ...stats,
+      totals: {
+        ...stats.totals,
+        // 40 tok/s for 1s plus 100 tok/s for 9s is 94 tok/s, not the naive 70 tok/s mean.
+        throughput: { outputTokens: 940, durationMs: 10_000, requests: 2, excludedRequests: 0 },
+      },
+    };
+    render(<Efficiency stats={weightedStats} series={series} granularity="day" />);
+    expect(metric('metric-throughput')).toBe('94.0 tok/s');
+  });
+
   it('ranks the most active projects by tokens', () => {
     const { container } = render(<Efficiency stats={stats} series={series} granularity="day" />);
     const chart = container.querySelector('[data-testid="chart-active-projects"]') as HTMLElement;
@@ -69,6 +94,13 @@ describe('Efficiency metrics', () => {
     ]);
   });
 
+  it('derives the per-bucket throughput rate, zero-guarding empty buckets', () => {
+    expect(throughputTrendData(series)).toStrictEqual([
+      { bucket: '2026-07-09', throughput: 153 / 62 },
+      { bucket: '2026-07-10', throughput: 0 },
+    ]);
+  });
+
   it('weights a merged bucket by volume rather than averaging its days\' ratios', () => {
     // 40% and 100% over wildly different volumes; the naive mean would be 70%.
     const bucket = { ...stats.days['2026-07-09']['-fixture-project'] };
@@ -88,12 +120,25 @@ describe('Efficiency metrics', () => {
     expect(screen.getByText('Tool error rate per week')).toBeTruthy();
   });
 
+  it('names the throughput trend after the granularity', () => {
+    render(<Efficiency stats={stats} series={series} granularity="week" />);
+    expect(screen.getByText('Response throughput per week')).toBeTruthy();
+  });
+
   it('renders one mark per day in the cache hit and tool error trend charts', () => {
     const { container } = render(<Efficiency stats={stats} series={series} granularity="day" />);
     const cacheChart = container.querySelector('[data-testid="chart-cache-hit-trend"]') as HTMLElement;
     const errorChart = container.querySelector('[data-testid="chart-tool-error-trend"]') as HTMLElement;
     expect(cacheChart.querySelectorAll('.recharts-bar-rectangle').length).toBe(2);
     expect(errorChart.querySelectorAll('.recharts-bar-rectangle').length).toBe(2);
+  });
+
+  it('renders one mark per bucket in the throughput trend and one bar per model', () => {
+    const { container } = render(<Efficiency stats={stats} series={series} granularity="day" />);
+    const trend = container.querySelector('[data-testid="chart-throughput-trend"]') as HTMLElement;
+    const models = container.querySelector('[data-testid="chart-model-throughput"]') as HTMLElement;
+    expect(trend.querySelectorAll('.recharts-bar-rectangle').length).toBe(2);
+    expect(models.querySelectorAll('.recharts-bar-rectangle').length).toBe(1);
   });
 });
 
@@ -119,6 +164,11 @@ describe('Efficiency with nothing selected', () => {
       tools: {},
       skills: {},
       skillTokens: {},
+      throughput: { outputTokens: 0, durationMs: 0, requests: 0, excludedRequests: 0 },
+      mainThroughput: { outputTokens: 0, durationMs: 0, requests: 0, excludedRequests: 0 },
+      sidechainThroughput: { outputTokens: 0, durationMs: 0, requests: 0, excludedRequests: 0 },
+      modelThroughput: {},
+      skillThroughput: {},
       agents: {},
     },
   };
@@ -140,5 +190,13 @@ describe('Efficiency with nothing selected', () => {
     expect(container.textContent ?? '').not.toContain('Infinity');
     expect(cacheHitTrendData([])).toStrictEqual([]);
     expect(toolErrorTrendData([])).toStrictEqual([]);
+  });
+
+  it('renders zero throughput rather than NaN or Infinity', () => {
+    const { container } = render(<Efficiency stats={empty} series={[]} granularity="day" />);
+    expect(container.textContent ?? '').not.toContain('NaN');
+    expect(container.textContent ?? '').not.toContain('Infinity');
+    expect(metric('metric-throughput')).toContain('0.0 tok/s');
+    expect(throughputTrendData([])).toStrictEqual([]);
   });
 });

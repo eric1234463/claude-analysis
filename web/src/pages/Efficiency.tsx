@@ -36,8 +36,13 @@ function safeRatio(numerator: number, denominator: number): number {
   return (numerator / denominator) * 100;
 }
 
+function throughputRate(outputTokens: number, durationMs: number): number {
+  if (durationMs === 0) return 0;
+  return outputTokens / (durationMs / 1000);
+}
+
 /**
- * Both trends divide *after* the bucket's counts were merged, so a week or month is weighted by
+ * Rate trends divide *after* the bucket's counts were merged, so a week or month is weighted by
  * volume rather than being the mean of its days' ratios — a quiet Sunday cannot swing the week.
  */
 export function cacheHitTrendData(series: readonly SeriesPoint[]) {
@@ -54,6 +59,13 @@ export function toolErrorTrendData(series: readonly SeriesPoint[]) {
   return series.map(({ bucket, counts }) => ({
     bucket,
     toolErrorRate: safeRatio(counts.toolErrors, counts.toolCalls),
+  }));
+}
+
+export function throughputTrendData(series: readonly SeriesPoint[]) {
+  return series.map(({ bucket, counts }) => ({
+    bucket,
+    throughput: throughputRate(counts.throughput.outputTokens, counts.throughput.durationMs),
   }));
 }
 
@@ -79,6 +91,11 @@ export function Efficiency({ stats, series, granularity }: PageProps) {
   const toolErrorRate = formatPercent(totals.toolErrors, totals.toolCalls);
   const avgTokensPerSession = formatInteger(totals.tokens.total, totals.sessionsStarted);
   const sidechainShare = formatPercent(totals.sidechainTokens.total, totals.tokens.total);
+  const throughput = throughputRate(
+    totals.throughput.outputTokens,
+    totals.throughput.durationMs,
+  );
+  const throughputRequestCount = totals.throughput.requests + totals.throughput.excludedRequests;
 
   const agentTypes = stats.agents.map((name) => ({
     name,
@@ -98,10 +115,41 @@ export function Efficiency({ stats, series, granularity }: PageProps) {
 
   const cacheHitTrend = cacheHitTrendData(series);
   const toolErrorTrend = toolErrorTrendData(series);
+  const throughputTrend = throughputTrendData(series);
+  const modelThroughput = Object.entries(totals.modelThroughput).map(([model, counts]) => ({
+    model,
+    throughput: throughputRate(counts.outputTokens, counts.durationMs),
+  }));
 
   return (
     <section data-testid="page-efficiency" className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <Card>
+          <CardContent className="px-5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                Response throughput
+              </span>
+              <Gauge className="size-4 shrink-0 text-muted-foreground" />
+            </div>
+            <div
+              data-testid="metric-throughput"
+              className="tabular mt-2 text-2xl leading-none font-semibold"
+            >
+              {throughput.toFixed(1)} tok/s
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Includes queue and prompt-processing time
+            </p>
+            <p
+              data-testid="metric-throughput-excluded"
+              className="mt-1 text-xs text-muted-foreground"
+            >
+              {formatNumber(totals.throughput.excludedRequests)} of{' '}
+              {formatNumber(throughputRequestCount)} requests excluded
+            </p>
+          </CardContent>
+        </Card>
         <StatCard
           label="Cache hit ratio"
           value={cacheHitRatio}
@@ -140,6 +188,60 @@ export function Efficiency({ stats, series, granularity }: PageProps) {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
+        <ChartCard
+          testId="chart-throughput-trend"
+          title={`Response throughput per ${GRANULARITY_NOUN[granularity]}`}
+          description="Output tokens per end-to-end response second"
+        >
+          <BarChart data={throughputTrend} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+            <CartesianGrid {...GRID_PROPS} />
+            <XAxis dataKey="bucket" tick={AXIS_TICK} axisLine={AXIS_LINE} tickLine={false} />
+            <YAxis tick={AXIS_TICK} axisLine={false} tickLine={false} width={44} />
+            <Tooltip {...TOOLTIP_PROPS} />
+            <Bar
+              dataKey="throughput"
+              name="Response throughput (tok/s)"
+              fill={CHART_COLORS[0]}
+              minPointSize={1}
+              radius={[4, 4, 0, 0]}
+              {...SEGMENT_GAP}
+            />
+          </BarChart>
+        </ChartCard>
+
+        <ChartCard
+          testId="chart-model-throughput"
+          title="Response throughput by model"
+          description="Volume-weighted end-to-end rate"
+          height={Math.max(240, modelThroughput.length * 34)}
+        >
+          <BarChart
+            data={modelThroughput}
+            layout="vertical"
+            margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
+          >
+            <CartesianGrid {...GRID_PROPS} vertical horizontal={false} />
+            <XAxis type="number" tick={AXIS_TICK} axisLine={false} tickLine={false} />
+            <YAxis
+              type="category"
+              dataKey="model"
+              tick={AXIS_TICK}
+              axisLine={false}
+              tickLine={false}
+              width={140}
+              tickFormatter={truncateTick}
+            />
+            <Tooltip {...TOOLTIP_PROPS} />
+            <Bar
+              dataKey="throughput"
+              name="Response throughput (tok/s)"
+              fill={CHART_COLORS[0]}
+              radius={[0, 4, 4, 0]}
+              {...SEGMENT_GAP}
+            />
+          </BarChart>
+        </ChartCard>
+
         <ChartCard
           testId="chart-cache-hit-trend"
           title={`Cache hit ratio per ${GRANULARITY_NOUN[granularity]}`}
