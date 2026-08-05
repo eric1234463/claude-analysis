@@ -111,6 +111,15 @@ describe('token extraction and dedupe', () => {
 });
 
 describe('durationMs derivation', () => {
+  it('uses a timestamped attachment line as an anchor candidate', () => {
+    const parsed = parseTranscript(MAIN, [
+      line({ type: 'attachment', timestamp: '2026-08-05T00:00:00.000Z' }),
+      line({ type: 'assistant', requestId: 'r1', timestamp: '2026-08-05T00:00:03.000Z',
+        message: { model: 'claude-opus-5', usage: { output_tokens: 300 } } }),
+    ], 'UTC');
+    expect(tokenOf(parsed, 'r1').durationMs).toBe(3000);
+  });
+
   it('brackets a request from the last eligible preceding line to its own last line', () => {
     const parsed = parseTranscript(MAIN, [
       line({ type: 'user', timestamp: '2026-08-05T00:00:00.000Z', sessionId: 's' }),
@@ -146,6 +155,19 @@ describe('durationMs derivation', () => {
     expect(tokenOf(parsed, 'r1').durationMs).toBe(2000);
   });
 
+  it.each(['file-history-delta', 'pr-link'] as const)(
+    'does not use an excluded %s line as an anchor',
+    (type) => {
+      const parsed = parseTranscript(MAIN, [
+        line({ type: 'user', timestamp: '2026-08-05T00:00:00.000Z', sessionId: 's' }),
+        line({ type, timestamp: '2026-08-05T00:00:09.000Z' }),
+        line({ type: 'assistant', requestId: 'r1', timestamp: '2026-08-05T00:00:02.000Z',
+          message: { model: 'claude-opus-5', usage: { output_tokens: 300 } } }),
+      ], 'UTC');
+      expect(tokenOf(parsed, 'r1').durationMs).toBe(2000);
+    },
+  );
+
   it('omits durationMs for the first request in a file and for non-positive intervals', () => {
     const first = parseTranscript(MAIN, [
       line({ type: 'assistant', requestId: 'r1', timestamp: '2026-08-05T00:00:02.000Z',
@@ -159,6 +181,15 @@ describe('durationMs derivation', () => {
         message: { model: 'claude-opus-5', usage: { output_tokens: 300 } } }),
     ], 'UTC');
     expect(tokenOf(negative, 'r1').durationMs).toBeUndefined();
+  });
+
+  it('omits durationMs for an exactly zero interval', () => {
+    const parsed = parseTranscript(MAIN, [
+      line({ type: 'user', timestamp: '2026-08-05T00:00:02.000Z', sessionId: 's' }),
+      line({ type: 'assistant', requestId: 'r1', timestamp: '2026-08-05T00:00:02.000Z',
+        message: { model: 'claude-opus-5', usage: { output_tokens: 300 } } }),
+    ], 'UTC');
+    expect(tokenOf(parsed, 'r1').durationMs).toBeUndefined();
   });
 
   it('anchors a later request to the previous request\'s last assistant line', () => {
