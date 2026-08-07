@@ -105,7 +105,9 @@ slash-command name can itself contain one.
 Single aggregate endpoint, all filtering client-side. `filterStats`/`usageSeries`
 (`web/src/api/filterStats.ts`) narrow by date range and project and re-derive `totals` and the index
 arrays; page components in `web/src/pages/` are pure functions of `{ stats, series, granularity }`
-and hold no fetching logic.
+and hold no fetching logic. The filter card's range presets are **derived** from the `from`/`to` state
+via `matchPreset` (`web/src/api/dateRange.ts`) and never stored, so don't add a `preset` state variable
+back — it would desync from the empty state's own `setRange` call.
 
 Time-bucketed charts group at a granularity the user picks in the filter card — daily (default),
 weekly or monthly. `usageSeries(stats, granularity)` does the grouping once, keying each point by

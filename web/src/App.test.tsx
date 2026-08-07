@@ -189,6 +189,80 @@ describe('App integration with the real filtering layer', () => {
     expect(screen.getByTestId('page-overview')).toBeTruthy();
     expect((screen.getByLabelText('From') as HTMLInputElement).value).toBe('');
   });
+
+  it('widens past the default range through the real filtering layer', () => {
+    renderReal(new Date(2026, 7, 2));
+    expect(screen.queryByTestId('page-overview')).toBeNull();
+    fireEvent.change(screen.getByLabelText('Range'), { target: { value: 'last90' } });
+    expect(screen.getByTestId('page-overview')).toBeTruthy();
+    expect((screen.getByLabelText('From') as HTMLInputElement).value).toBe('2026-05-05');
+  });
+
+  it('reads all time, not custom, after the empty state clears the range', () => {
+    renderReal(new Date(2026, 7, 2));
+    fireEvent.click(screen.getByRole('button', { name: /show all time/i }));
+    expect((screen.getByLabelText('Range') as HTMLSelectElement).value).toBe('all');
+  });
+});
+
+describe('App date range presets', () => {
+  it('offers the four selectable presets and opens on the last seven days', () => {
+    const { deps, seen } = fakes();
+    render(<App stats={stats} deps={deps} />);
+    const select = screen.getByLabelText('Range') as HTMLSelectElement;
+    expect(select.value).toBe('last7');
+    const options = [...select.options];
+    expect(options.map((o) => o.value)).toStrictEqual(['last7', 'last30', 'last90', 'all']);
+    expect(options.map((o) => o.textContent)).toStrictEqual([
+      'Last 7 days',
+      'Last 30 days',
+      'Last 90 days',
+      'All time',
+    ]);
+    expect(seen[0].from).toBe('2026-07-04');
+    expect(seen[0].to).toBe('2026-07-10');
+  });
+
+  it('rewrites both bounds and both inputs when a wider preset is chosen', () => {
+    const { deps, seen } = fakes();
+    render(<App stats={stats} deps={deps} />);
+    fireEvent.change(screen.getByLabelText('Range'), { target: { value: 'last30' } });
+    const last = seen[seen.length - 1];
+    expect(last.from).toBe('2026-06-11');
+    expect(last.to).toBe('2026-07-10');
+    expect((screen.getByLabelText('From') as HTMLInputElement).value).toBe('2026-06-11');
+    expect((screen.getByLabelText('To') as HTMLInputElement).value).toBe('2026-07-10');
+  });
+
+  it('clears both bounds for all time', () => {
+    const { deps, seen } = fakes();
+    render(<App stats={stats} deps={deps} />);
+    fireEvent.change(screen.getByLabelText('Range'), { target: { value: 'all' } });
+    const last = seen[seen.length - 1];
+    expect(last.from).toBeUndefined();
+    expect(last.to).toBeUndefined();
+    expect((screen.getByLabelText('From') as HTMLInputElement).value).toBe('');
+  });
+
+  it('reads custom once a date is edited by hand', () => {
+    const { deps } = fakes();
+    render(<App stats={stats} deps={deps} />);
+    fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-07-09' } });
+    const select = screen.getByLabelText('Range') as HTMLSelectElement;
+    expect(select.value).toBe('custom');
+    expect([...select.options].map((o) => o.value)).toContain('custom');
+    expect([...select.options].map((o) => o.textContent)).toContain('Custom');
+  });
+
+  it('keeps reading last7 when the clock advances mid-session', () => {
+    const { deps } = fakes();
+    let current = new Date(2026, 6, 10);
+    deps.now = () => current;
+    render(<App stats={stats} deps={deps} />);
+    current = new Date(2026, 6, 20);
+    fireEvent.click(screen.getByRole('button', { name: 'Tools' }));
+    expect((screen.getByLabelText('Range') as HTMLSelectElement).value).toBe('last7');
+  });
 });
 
 describe('App header shows data-quality and freshness fields from the unfiltered stats', () => {
