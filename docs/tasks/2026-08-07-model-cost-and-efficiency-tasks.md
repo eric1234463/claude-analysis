@@ -279,7 +279,7 @@ Every task's `Files:` list, compared path by path:
 
 ## Wave 0
 
-### ⬜ Task 1 — Contract declarations and shared fixture data
+### ✅ Task 1 — Contract declarations and shared fixture data
 
 **Phase:** 1, 4 · **Wave:** 0
 **Provides:** C-1, C-2, C-3, C-4, C-7 · **Consumes:** none
@@ -408,8 +408,45 @@ git add -- server/src/stats/contracts.ts web/src/api/types.ts \
 git commit -m "Declare per-model cost contracts and give the fixtures a cache-TTL split"
 ```
 
-**Progress notes:** —
-**Commit hash:** —
+**Progress notes:** ✅ Completed. Success criteria: MET (all 6). Files: the five listed paths, nothing outside them.
+Verified by controller with an independent script (`review1.py`): every `CostBreakdown` has exactly the 8 integer fields;
+every `total` equals its five components; each cell's `cost` equals the sum over its own `modelCost`; `totals.cost` equals
+the two cells field by field; **every `modelCost` field independently re-derived from that model's own `TokenTotals` × the
+rate table — all 8 fields × 3 entries match**, so the numbers follow from the rates rather than merely being self-consistent;
+all 17 `TokenTotals` satisfy `cacheCreation1h + cacheCreation5m === cacheCreation` with `total` unchanged; `modelCost` keys ==
+`models` keys; every transcript nested split sums to its flat field, and every bare `usage` has flat 0. 0 failures.
+`AGGREGATE_STATS_KEYS` untouched in both packages; `TokenUsage` and `CostBreakdown` byte-identical across packages;
+web has no `UsageEvent` and no `speed` field. C-1/C-2/C-3/C-4/C-7 CONFORM. Verification: none (per the doc) — diff read + arithmetic.
+**Finding F-1 raised mid-run by the agent and accepted — see the Findings section.** Deviations: agent added
+`cacheCreation1h`/`cacheCreation5m` to all 17 fixture `TokenTotals` objects, which F-1 makes mandatory; accepted.
+**Commit hash:** `38bfeb4`
+
+---
+
+## Findings
+
+Premises in this doc that turned out to be false, corrected mid-run. Recorded here because the blast radius follows the
+*briefs that share the premise*, not a contract's consumer list.
+
+### F-1 — `TokenTotals` inherits the cache-TTL split (raised by the Task 1 agent, 2026-08-07)
+
+`export interface TokenTotals extends TokenUsage { total: number }` — `server/src/stats/contracts.ts:72`,
+`web/src/api/types.ts:19`. Adding `cacheCreation1h` / `cacheCreation5m` to `TokenUsage` (C-1) therefore makes them
+**required on every `TokenTotals`**, not only on the parser's per-event usage.
+
+This contradicts the source plan's Key Design Decision "`TokenTotals` is not extended", which is simply wrong about the
+repo — the extension happens by inheritance, not by choice. **The plan needs correcting**; it is not a contract change,
+so C-1 stands as written.
+
+Consequences, broadcast into the affected task briefs before Wave 1 dispatched:
+- **Task 1** — the fixture's 17 `TokenTotals` objects need the two fields. Done in the same commit.
+- **Task 4** — `emptyTokenTotals()` must initialise them to 0 and `addUsage()` must sum them, or the aggregator emits
+  `TokenTotals` without the split and `server/test/stats.integration.test.ts:75` fails its `toStrictEqual` at the Final Gate.
+- **Task 5** — `zeroTokenTotals()` and `addTokenTotals()` must carry them, or every filtered or bucketed view silently
+  drops the split.
+
+No other task's brief depends on the premise: Tasks 2, 3, 6 and 7 touch `TokenUsage` or `CostBreakdown` but never
+construct a `TokenTotals`.
 
 ---
 
@@ -660,6 +697,13 @@ Cost accumulation goes **inside the existing `if (event.model !== SYNTHETIC)` br
 
 `sortCounts` at `aggregator.ts:150` enumerates the record fields it sorts; `modelCost` must be added (Precondition 8).
 
+**Finding F-1 applies to this task.** `TokenTotals extends TokenUsage`, so it now carries `cacheCreation1h` and
+`cacheCreation5m` too. You must extend **`emptyTokenTotals()`** (`aggregator.ts:16`) to initialise both to `0`, and
+**`addUsage()`** (`aggregator.ts:20`) to sum both — exactly as it already sums `cacheCreation`. `total` keeps its existing
+formula (`input + output + cacheRead + cacheCreation`) and must **not** gain the split, or every existing token total
+doubles its cache-creation contribution. Without this the aggregator emits `TokenTotals` without the split and
+`server/test/stats.integration.test.ts:75` fails its `toStrictEqual` at the Final Gate.
+
 **Contract (provides C-6)**
 
 ```ts
@@ -701,6 +745,7 @@ Note `uncachedCacheCost` uses `cacheCreation1h + cacheCreation5m`, not `cacheCre
 | Cells merge | two events in different projects on the same day keep separate cell costs, and `totals.cost` is their sum |
 | Zero-cache event | an event with `cacheRead` 0 and both splits 0 has `uncachedCacheCost` 0 and `cacheWrite5m`/`cacheWrite1h` 0 |
 | Sort order | `modelCost` keys come back sorted, matching `models` |
+| F-1: split flows into TokenTotals | an event with cc1h 40 / cc5m 50 produces `tokens.cacheCreation1h` 40, `tokens.cacheCreation5m` 50, `tokens.cacheCreation` 90, and `tokens.total` **unchanged** by the split (still `input + output + cacheRead + cacheCreation`) |
 | Default parameter | calling `aggregate(files, at)` with two arguments still works and produces real (non-zero) cost for a real model name — proves the default is wired, not just declared |
 
 Use `toStrictEqual` on whole `CostBreakdown` objects.
@@ -730,6 +775,7 @@ Expect `Test Files  1 passed (1)`, with every pre-existing test in the file stil
 - Both `event.day` and `event.speed` demonstrably reach the lookup, each proven by a test that fails if the argument is replaced by a constant.
 - `uncachedCacheCost` is based on the split, not the flat total, proven on an event where the two disagree.
 - `emptyCounts` initializes `cost` to an all-zero `CostBreakdown` and `modelCost` to `{}`; `sortCounts` sorts `modelCost`.
+- **F-1:** `emptyTokenTotals()` initialises `cacheCreation1h`/`cacheCreation5m` and `addUsage()` sums them, while `total` keeps its existing four-term formula — the case that would otherwise double-count cache creation in every token total on the dashboard.
 - `aggregate(files, at)` — two arguments — still compiles and prices correctly via the default.
 - Every pre-existing assertion in `aggregator.test.ts` still passes unmodified.
 
@@ -777,6 +823,11 @@ function addCostBreakdown(a: CostBreakdown, b: CostBreakdown): CostBreakdown;  /
 
 `mergeUsageCounts` gains `result.cost = addCostBreakdown(result.cost, cell.cost)` and a `modelCost` loop mirroring the existing `models` loop at line 82.
 
+**Finding F-1 applies to this task.** `TokenTotals extends TokenUsage`, so it now carries `cacheCreation1h` and
+`cacheCreation5m`. **`zeroTokenTotals()`** (`filterStats.ts:19`) must initialise both to `0` and **`addTokenTotals()`**
+(`filterStats.ts:23`) must sum both, or every filtered or bucketed view silently drops the split while the unfiltered
+totals look correct. `total` keeps its existing summed-field behaviour — do not add the split into it.
+
 **Tests** (add to `filterStats.test.ts`). Build `UsageCounts` literals directly — no fixture needed, no peer's code needed. One per case:
 
 | Case | Assertion |
@@ -790,6 +841,7 @@ function addCostBreakdown(a: CostBreakdown, b: CostBreakdown): CostBreakdown;  /
 | `usageSeries` weekly | two days in one ISO week produce one bucket whose `cost.total` is their sum — the associativity the whole design rests on |
 | `usageSeries` monthly | same across a month boundary: two days in different months stay in different buckets |
 | Empty selection | filtering to a range with no days yields an all-zero `cost` and an empty `modelCost`, not `undefined` |
+| F-1: split merges | two cells whose `tokens` carry different `cacheCreation1h`/`cacheCreation5m` merge to the sum of each, and `tokens.total` is unchanged by the split |
 
 **Mutations to reject.** Apply each, confirm the named assertion fails, revert, report the output.
 
@@ -814,6 +866,7 @@ Expect `Test Files  1 passed (1)`, with every pre-existing test in the file stil
 - A weekly bucket's `cost.total` equals the sum of its days' — proven at both a week and a month boundary.
 - Every pre-existing assertion in `filterStats.test.ts` still passes unmodified.
 - Nothing in this file multiplies by a rate or divides — it only adds.
+- **F-1:** `zeroTokenTotals()` and `addTokenTotals()` carry `cacheCreation1h`/`cacheCreation5m`, so a filtered or weekly view reports the same split as the unfiltered totals — the case where a dropped field is invisible because the headline number still looks right.
 
 **Controller review checklist**
 - [ ] Re-run the verification command; confirm every pre-existing test in the file is still present and passing.
