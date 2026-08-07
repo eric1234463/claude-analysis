@@ -73,10 +73,13 @@ export function presetRange(
 
 /**
  * Which preset a range reads back as, so the select can show "Last 30 days" instead of
- * "Custom" for a window it just produced. Empty bounds are answered before the scan
- * because that pair means All time no matter what the clock says. A hand-typed range
- * that happens to land on a preset window reads as that preset — accepted, since the
- * two are indistinguishable by then and the preset is the friendlier label.
+ * "Custom" for a window it just produced. The empty-bounds check is a fast path for the
+ * commonest input, not a correctness guard: the scan below reaches `'all'` on its own,
+ * since `presetRange('all', now)` returns that pair for every `now` and `'all'` is in
+ * {@link RANGE_PRESETS}. It stays because it states the intent where it is read. A
+ * hand-typed range that happens to land on a preset window reads as that preset —
+ * accepted, since the two are indistinguishable by then and the preset is the friendlier
+ * label.
  */
 export function matchPreset(range: { from: string; to: string }, now: Date): RangePreset {
   if (range.from === '' && range.to === '') {
