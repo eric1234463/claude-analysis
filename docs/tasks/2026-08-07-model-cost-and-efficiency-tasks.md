@@ -792,7 +792,7 @@ the two split fields plus `speed` to satisfy C-2. No token count changed. The ag
 
 ---
 
-### ⬜ Task 4 — Price every token event in the aggregator
+### ✅ Task 4 — Price every token event in the aggregator
 
 **Phase:** 2 · **Wave:** 1
 **Provides:** C-6, populates C-4 · **Consumes:** C-1, C-2 (owner Task 1), C-3, C-4 (owner Task 1), C-5 (owner Task 2)
@@ -908,12 +908,26 @@ git add -- server/src/stats/aggregator.ts server/src/stats/aggregator.test.ts
 git commit -m "Price every token event per model and day in the aggregator"
 ```
 
-**Progress notes:** —
-**Commit hash:** —
+**Progress notes:** ✅ Completed. Success criteria: MET (all 9). Files: aggregator.ts, aggregator.test.ts only; `pipeline.ts`
+confirmed untouched by `git status`. Verified by controller: 35 PASS (17 pre-existing + 18 new). **All 7 mutations re-proven** —
+M2–M7 via `prove-mutations.sh` (3/1/1/1/1/1 failures), **M1 applied by hand** (structural hoist out of the synthetic guard;
+1 failure). Diff read confirms the three things most likely to be wrong here and were not: pricing sits *lexically inside*
+`if (event.model !== SYNTHETIC)` at :130 so synthetic exclusion is by construction; `uncachedCacheCost` uses
+`cacheCreation1h + cacheCreation5m`, not the flat field, with the reason in a comment; and **F-1's `total` keeps its
+four-term formula** with an explicit "adding the split would double-count" comment — the failure that would have silently
+doubled every token total on the dashboard. `unpricedTokens` reads the flat field while pricing reads the split, so the two
+never have to reconcile. C-6 provided as declared (optional third param defaulting to the real `rateFor`); C-1–C-5 consumed
+as declared, C-5 only through the two-row stand-in. **Raised F-4** (see Findings) — its M1 trace correction was accepted.
+Deviations, all additive and accepted: `splitUsage(overrides)` by-field builder so a split cannot be transposed
+positionally; `defaultCell(stats)` with the pre-existing `throughputCell` aliased to it rather than duplicated; the
+default-parameter test asserts non-zero + self-consistency rather than real-table figures, keeping the file independent of
+the table's contents; the M6 splits-above-flat case added as instructed; 8 expected `TokenTotals` literals gained the two
+split fields and 10 token-event literals gained `speed: 'standard'`, with no expected number changed.
+**Commit hash:** `b35879a`
 
 ---
 
-### ⬜ Task 5 — Merge cost cells in `filterStats`
+### ✅ Task 5 — Merge cost cells in `filterStats`
 
 **Phase:** 2 · **Wave:** 1
 **Provides:** none · **Consumes:** C-3, C-4 (owner Task 1)
@@ -996,12 +1010,25 @@ git add -- web/src/api/filterStats.ts web/src/api/filterStats.test.ts
 git commit -m "Merge per-model cost cells when filtering and bucketing"
 ```
 
-**Progress notes:** —
-**Commit hash:** —
+**Progress notes:** ✅ Completed. Success criteria: MET (all 7). Files: filterStats.ts, filterStats.test.ts only.
+Verified by controller: 33 PASS (baseline was 23 tests with **2 already failing** — see F-3; this task turns the file green
+and adds 10 cases). **All 5 mutations re-proven** — M1/M2/M3/M5 via `prove-mutations.sh` (7/10/1/9 failures), **M4 applied by
+hand** as the faithful two-line transposition (8 failures). M4 is worth recording precisely: it does *not* cleanly swap the
+two outputs, it cross-pollinates through the accumulator — expected `cacheWrite5m` 440 / `cacheWrite1h` 5500 came back as
+5400 / 540, because each iteration is fed transposed values. Distinct per-cell values are what make it observable, and the
+brief's warning about that was honoured. M5's signature is the one the `cost === sum(modelCost)` invariant exists for:
+dropping the `result.cost` merge fails 9 cost assertions while "merges modelCost per key" stays green. Diff read confirms
+`addTokenTotals` carries both split fields with `total` left as `a.total + b.total` (F-1 satisfied without the split
+entering `total`), and that nothing in the file multiplies or divides. C-3/C-4 consumed as declared; no new exported
+surface; tests use hand-built `UsageCounts` literals with no fixture and no peer import. **Raised F-3.**
+Deviations: three pre-existing expected-value literals gained the two contract fields per the F-3 ruling — line 7 `zero`
+(0/0), the `skillTokens.brainstorming` literal (4000/2069), and the "doubled" literal (8000/4138). Agent verified both
+splits sum to their flat `cacheCreation` (6069, 12138) and both `total`s unchanged (27280, 54560); controller re-checked.
+**Commit hash:** `f5a0216`
 
 ---
 
-### ⬜ Task 6 — Cost page and navigation
+### ✅ Task 6 — Cost page and navigation
 
 **Phase:** 3 · **Wave:** 1
 **Provides:** none · **Consumes:** C-3, C-4 (owner Task 1), C-7 (owner Task 1)
@@ -1113,8 +1140,25 @@ git add -- web/src/pages/Cost.tsx web/src/pages/Cost.test.tsx web/src/App.tsx we
 git commit -m "Add a Cost page showing per-model spend, cache economics and output yield"
 ```
 
-**Progress notes:** —
-**Commit hash:** —
+**Progress notes:** ✅ Completed. Success criteria: MET (all 7). Files: Cost.tsx and Cost.test.tsx created, App.tsx and
+App.test.tsx modified; `web/src/lib/format.ts` and `web/src/components/charts.tsx` confirmed untouched by `git status`.
+Verified by controller: Cost 15 PASS, App 24 PASS (22 pre-existing + 2 new; the pre-existing "offers all four pages" case
+became "all five"). **All 7 mutations re-proven** — M1/M2/M3/M5/M6 via `prove-mutations.sh` against `Cost.test.tsx`
+(2/2/1/6/2 failures), **M4 applied by hand** as a two-line JSX transposition (1 failure, `expected '$0.004575' to be
+'$0.000080'`), M7 via the script against `App.test.tsx` (2 failures). Note on M5: the controller's variant replaced only the
+`formatUsd` return line rather than the whole body, leaving the `usd === 0` early return intact — a strictly weaker mutation
+than the agent's, and still rejected (6 failures vs the agent's 8). Diff read confirms `netCacheSaving` is the exact
+contract formula, `modelCostRows` sorts alphabetically and reads only `totals.modelCost` / `totals.models`,
+`grep` finds no `stats.days` access in code (one mention in a comment), `scaledRate` is zero-guarded and rounds so
+`formatUsd` only ever sees integers, and `ZERO_TOKENS` correctly carries the F-1 split fields. `PAGE_SUBTITLES` was used by
+its real name and not "corrected". Max 4 chart series. C-3/C-4/C-7 consumed read-only; no local copy of the fixture or of a
+cost shape. Deviations, both accepted: the spend-trend chart description reads "List-price spend in each bucket" rather than
+repeating "at API list price", because two nodes with that exact copy made `getByText` ambiguous and the duplicate was
+redundant on screen — the footnote itself is unchanged and asserted; and two additive chart-data builder exports
+(`costTrendData`, `modelCostSplitData`/`modelCostRows`) matching the `Efficiency.tsx` idiom.
+Notes carried forward: the Cost page reads `counts.cost.total` off each `SeriesPoint`, so the live spend trend depends on
+Task 5's merge — satisfied by `f5a0216`, and the Final Gate's real-data smoke is where that pairing is exercised for real.
+**Commit hash:** `53bea22`
 
 ---
 
