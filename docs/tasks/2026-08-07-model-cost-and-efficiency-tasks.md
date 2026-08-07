@@ -1164,7 +1164,7 @@ Task 5's merge — satisfied by `f5a0216`, and the Final Gate's real-data smoke 
 
 ## Wave 2
 
-### ⬜ Task 7 — Bind the contracts to the real implementations
+### ✅ Task 7 — Bind the contracts to the real implementations
 
 **Phase:** 2, 3 · **Wave:** 2
 **Provides:** none · **Consumes:** C-1, C-2, C-3, C-4 (owner Task 1), C-5 (owner Task 2), C-6 (owner Task 4), C-7 (owner Task 1)
@@ -1237,8 +1237,39 @@ git add -- server/src/stats/cost-integration.test.ts server/src/stats/stats.modu
 git commit -m "Bind the cost contracts to the real rate table and aggregator"
 ```
 
-**Progress notes:** —
-**Commit hash:** —
+**Progress notes:** ✅ Completed. Success criteria: MET (all 6). Files: `cost-integration.test.ts` (new) and
+`stats.module.test.ts` (+5 lines in the existing GET assertion). `server/test/stats.integration.test.ts` confirmed
+**unmodified** by `git diff --exit-code` and green at 13/13. Routed to Task 4's agent, which retained the aggregator's
+semantics.
+Verified by controller: cost-integration 6 PASS, stats.module 9 PASS. Structural check of the binding — the file never
+imports `rateFor`, never mentions `RATE_TABLE`, and calls `aggregate([...], AT)` with **two arguments only**, so the real
+default does the pricing.
+**All 5 mutations re-proven, including the one that justifies the whole wave:**
+- **M1 rename probe — controller re-ran it independently. The binding is REAL.** Renaming `export function rateFor` →
+  `priceFor` in `rates.ts` (updating only its own test) fails 5 of 6 cases with `TypeError: rateFor is not a function`
+  at `aggregator.ts:136`. Critically, `rates.test.ts` still PASSES under the rename — so the probe isolates the *consumer*
+  binding rather than merely detecting a broken file. The lone survivor is the `fileCacheKey` v3 case, which prices nothing.
+- M2 (`effectiveFrom` `2026-09-01` → `2026-10-01`) → 1 failure. M3 (default lookup → `() => undefined`) → 4 failures.
+- **M4 substituted per F-5** — the brief's version could not fail. Stripping `modelCost` in `StatsController.getStats()`
+  → 1 failure on the new key assertion while the pre-existing ones stay green. Proven by the controller on the HTTP path.
+- **M5 proven twice, and the agent was right that the first proof is weaker than it looks.** The date swap fails, but only
+  on the day-key routing guard, because vitest stops at the first failing assertion. Controller reproduced the agent's
+  second proof — swap the dates *and* neutralise the two guards — and the money assertion fails independently:
+  `expected 40921350 to be 27280900`. So the boundary test distinguishes the two sides on **cost**, not just on routing.
+**Raised F-5** (two mis-specified mutations) and declined, unprompted, to mutate the shared fixture JSON.
+Deviations, all accepted: M4 substitution; own assertion tightened to `Object.keys(res.body.totals.modelCost ?? {})` so
+M4 fails as a clean `[] vs 2 keys` diff rather than a `TypeError` indistinguishable from a typo; Test 2 built as two
+separate `aggregate` runs per F-5; `TIME_ZONE` read from `loadConfig({}).timeZone` rather than hardcoded, with timestamps
+at 04:00Z (noon in that zone, same calendar date at UTC).
+**Honest coverage limit the agent flagged rather than papered over:** Test 2's `published()` helper re-derives the cache
+rates from `input` using the same 0.1x / 1.25x / 2x multipliers as `rates.ts`, so it cannot catch an edit to those three
+multipliers — it catches the per-MTok dollar figures and the effective date. **That gap is closed elsewhere:** Task 2's
+"Derived rates" case asserts the multipliers by iterating `RATE_TABLE`, and its M5 proves the assertion bites. Recorded so
+the pairing is explicit rather than accidental.
+Also worth keeping: M3's survivors are the v3 cache-key case and the unknown-model case — the latter *cannot* detect a
+no-op lookup by construction, since "every model unpriced" is exactly what it asserts. The four real-rate cases are what
+cover that failure mode.
+**Commit hash:** `2561dd0`
 
 ---
 
