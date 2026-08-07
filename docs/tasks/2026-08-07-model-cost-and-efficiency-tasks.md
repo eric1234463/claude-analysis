@@ -245,7 +245,7 @@ _None yet. The controller records amendments here as `C-n (YYYY-MM-DD): <change>
 |---|---|---|---|
 | 0 | 1 | 1, 4 | Consumers need `CostBreakdown` and the extended `UsageCounts` to *resolve* at import time, and Tasks 6 and 7 need the fixture's cost fields to exist before their assertions can be written. |
 | 1 | 2, 3, 4, 5, 6 | 1, 2, 3 | — dispatched together |
-| 2 | 7 | 2, 3 | Asserts the contract against the owner's **real** implementation — the real `rateFor` and the real `aggregate`. By definition no stand-in can prove it, since a stand-in is what it exists to replace. |
+| 2 | 7, 8 | 2, 3 | Task 7 asserts the contract against the owner's **real** implementation — the real `rateFor` and the real `aggregate`. By definition no stand-in can prove it, since a stand-in is what it exists to replace. |
 
 ### File-ownership check
 
@@ -1239,6 +1239,61 @@ git commit -m "Bind the cost contracts to the real rate table and aggregator"
 
 **Progress notes:** —
 **Commit hash:** —
+
+---
+
+### ✅ Task 8 — Restore the type check for the three test files no wave task owned
+
+**Phase:** 2, 3 · **Wave:** 2 · **Added mid-run** — see F-3
+**Provides:** none · **Consumes:** C-1, C-3, C-4 (owner Task 1)
+**Assumes decision:** none
+
+**Files**
+- Modify `server/src/stats/contracts.test.ts`
+- Modify `web/src/pages/Efficiency.test.tsx`
+- Modify `web/src/pages/Skills.test.tsx`
+
+**Why this task exists.** Wave 0 made `cacheCreation1h`/`cacheCreation5m` required on `TokenTotals` (via `extends
+TokenUsage`) and `cost`/`modelCost` required on `UsageCounts`. Six wave tasks updated the files they owned; these three
+construct `TokenTotals`- or `UsageCounts`-shaped literals and **no task owned them**, so `npm run typecheck` was red with no
+owner. All three passed at runtime — vitest transpiles without type checking — so the exposure was purely type-level and
+would have surfaced only at the Final Gate.
+
+**Contract.** No behaviour, no new surface. Additive literal repair only: a `TokenTotals` literal gains the two split fields
+such that they sum to its existing `cacheCreation`; a `UsageCounts` literal additionally gains an all-zero `cost` and
+`modelCost: {}`. No existing value changed, no `total` touched, no suppression (`as any`, `@ts-expect-error`), no assertion
+or operator altered.
+
+**Verification** — the gate here is the type check, because the exposure is type-only:
+```
+npm run typecheck --prefix server
+npm run typecheck --prefix web
+npm test --prefix server -- run src/stats/contracts.test.ts
+npm test --prefix web -- run src/pages/Efficiency.test.tsx
+npm test --prefix web -- run src/pages/Skills.test.tsx
+```
+
+**Mutations to reject:** none. The task adds no behaviour and no assertion; inventing a mutation for a literal repair would
+prove nothing. Its gate is a clean type check plus unchanged runtime counts.
+
+**Progress notes:** ✅ Completed. Success criteria: MET (all 6). Files: the three listed paths only.
+Verified by controller: `npm run typecheck --prefix server` and `--prefix web` both **0 `error TS` lines** (were 3 and 5,
+all `TS2739`); runtime counts unchanged — contracts 4 PASS, Efficiency 25 + Skills 16 = 41 PASS. Diff grep confirms no
+`as any`, no `@ts-expect-error`/`@ts-ignore`, no `.skip`/`.todo`, and no `total` value altered (`tok`'s `total` expression is
+byte-identical; the `total: 0` lines only moved within reformatted literals). `Skills.test.tsx` was fixed once in the `tok`
+helper rather than at each call site.
+The brief predicted a second round of errors once the nested `TokenTotals` ones were fixed (the masked `cost`/`modelCost`
+mismatch on the enclosing `totals`); none appeared, because the agent added both in the same pass. Recorded because the
+prediction was reasonable and simply did not fire.
+**Agent finding, accepted and fixed on controller direction:** `web/src/pages/Efficiency.test.tsx:177` spread the fixture's
+tokens (`cacheCreation1h: 4003, cacheCreation5m: 2071`) and then overrode only `cacheCreation: 0`, leaving a literal where
+the split contradicted the total — a counter-example, sitting in test data, to the one invariant this whole feature rests
+on. Type-clean and harmless today (`cacheHitTrendData` reads only the flat field). The agent correctly flagged rather than
+edited, since it is a test-data change beyond a type repair. Controller verified the arithmetic is unaffected and directed
+the one-line fix; the assertion still reads 94, confirming nothing in that path reads the split. Every `TokenTotals` literal
+in these three files now satisfies `cacheCreation1h + cacheCreation5m === cacheCreation`.
+Deviations: none.
+**Commit hash:** `0a36474`
 
 ---
 
