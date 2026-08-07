@@ -461,12 +461,40 @@ describe('cost pricing', () => {
 
   it('counts an unpriced model as unpricedTokens and still gives it a modelCost entry', () => {
     const stats = aggregate([file([priced({ model: 'unknown-model' })])], AT, fakeRateFor);
-    // 10 + 20 + 30 + 90 -- the flat cacheCreation, not the split.
+    // 10 + 20 + 30 + 90. SAMPLE's split sums to its flat field, so this case cannot tell the
+    // two bases apart -- the case below is the one that pins the choice.
     const unpriced = { ...ZERO_COST, unpricedTokens: 150 };
 
     expect(defaultCell(stats).cost).toStrictEqual(unpriced);
     expect(defaultCell(stats).modelCost).toStrictEqual({ 'unknown-model': unpriced });
     expect(stats.totals.cost).toStrictEqual(unpriced);
+  });
+
+  it('counts unpriced tokens on the flat cacheCreation, keeping cost auditable against tokens', () => {
+    // The two bases answer different questions and are deliberately allowed to diverge (the
+    // parser keeps the flat field authoritative and does not clamp the parts to it). Pricing
+    // reads the SPLIT, because that is what the per-TTL rates apply to. unpricedTokens reads
+    // the FLAT field, because it exists so a reader can reconcile cost against the token
+    // totals shown on the dashboard -- and those are built from the flat field too.
+    const stats = aggregate([file([priced({
+      model: 'unknown-model',
+      // Parts overshoot the flat total, the shape parser.test.ts's "clamps the remainder at
+      // zero and keeps the flat field authoritative" permits: 8 + 9 = 17, but flat is 10.
+      usage: splitUsage({
+        input: 10, output: 20, cacheRead: 30,
+        cacheCreation: 10, cacheCreation1h: 8, cacheCreation5m: 9,
+      }),
+    })])], AT, fakeRateFor);
+    const cell = defaultCell(stats);
+
+    expect(cell.cost.unpricedTokens).toBe(70); // 10 + 20 + 30 + 10, NOT 77
+    // The invariant that basis exists to serve, stated directly: for a cell whose every token
+    // went unpriced, the unpriced count IS the cell's token total.
+    expect(cell.cost.unpricedTokens).toBe(cell.tokens.total);
+    expect(cell.modelCost['unknown-model'].unpricedTokens).toBe(70);
+    expect(stats.totals.cost.unpricedTokens).toBe(70);
+    // Still no money, and the divergent split did not leak into a money field.
+    expect(cell.cost).toStrictEqual({ ...ZERO_COST, unpricedTokens: 70 });
   });
 
   it('excludes <synthetic> from cost and from modelCost even with non-zero tokens', () => {
