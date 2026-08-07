@@ -2,7 +2,7 @@
 type: task
 title: "Date Range Presets — Task Breakdown"
 description: "Two serial tasks: a pure preset vocabulary in dateRange.ts, then a Range select in the filter card whose active preset is derived from the existing from/to state."
-status: in_progress
+status: completed
 owner: "eric1234463@gmail.com"
 ticket: "DASH-0000"
 created: "2026-08-07"
@@ -16,7 +16,7 @@ wiki: false
 **Plan:** [docs/plans/2026-08-07-date-range-presets.md](../plans/2026-08-07-date-range-presets.md)
 **Branch:** feature/DASH-0000-date-range-presets — `executing-task` will not dispatch on any other branch. Work happens in the git worktree at `.claude/worktrees/date-range-presets`, which has its own `npm install` (already run; `node_modules/` present).
 **Started:** 2026-08-07
-**Completed:** —
+**Completed:** 2026-08-07
 
 **Branch point:** `beec4c8` (`git merge-base main HEAD`). This repo has no CI, so the branch point is not CI-gated and a baseline was measured: root `npm test` → server `8 files / 98 tests passed`, web `11 files / 131 tests passed`; root `npm run typecheck` → both packages clean. Anything red later in the run is therefore this run's.
 
@@ -601,9 +601,93 @@ Deviations: the agent trimmed the pre-existing comment above the `range` initial
 
 ## Final Gate
 
-_Filled in by executing-task. Nothing runs in CI for this repo, so the gate owns root `npm test` and `npm run typecheck` in full, then the review pass over the whole run diff (cross-task integration · unnamed-mutation search), then the plan's Success Criteria ticked with evidence per item. Worth a manual `npm run dev` pass too: the plan's OQ-1 asks whether 90 daily x-axis points are legible, and that is the only way to answer it._
+### 6a — controller's own checks
 
-—
+Nothing runs in CI for this repo, so the gate owns all of these; none was left to CI.
+
+| Check | Result |
+|---|---|
+| Root `npm test` | web **11 files / 152 tests passed**, server **8 files / 98 tests passed** |
+| Root `npm run typecheck` | both packages clean |
+| Root `npm run build` | both packages clean (pre-existing chunk-size advisory only) |
+| Amendment propagation | **nothing to propagate — no amendment was issued in the run.** Every contract was implementable and consumable verbatim |
+| Cross-consumer stand-in divergence | **not applicable — no stand-in was used.** C-1 to C-4 have a single consumer (Task 2), which imports the real committed module. That is why the run has a real binding at all |
+| `git status --porcelain` | clean |
+| Forbidden paths | `git diff --name-only beec4c8..HEAD` matches nothing under `server/`, no `contracts.ts`, no `__fixtures__` — the plan's "no contract change" claim holds by construction |
+
+### 6b — Reviewer 1, cross-task integration
+
+**Critical: none.** It walked every path by which `App` can write `range` — mount initialiser, Range select, both date inputs, empty-state button — and confirmed `matchPreset` is total over all of them, so the `<select>` can never fall back to a wrong first option. It also confirmed `range` is orthogonal to `granularity`, to `projects`, and to Refresh, and that `'all'` reaches `filterStats` as genuinely unbounded rather than as a filter matching nothing.
+
+| # | Finding | Disposition | Commit |
+|---|---|---|---|
+| Imp 1 | The unbounded encoding was implemented twice — the empty-state button hardcoded `{ from: '', to: '' }` while `dateRange.ts` owned the same fact as `presetRange('all')`. Both sides asserted the `''` literals independently, so a divergence would have shipped green | **Fixed** — button now calls `presetRange('all', now)` | `afd90e7` |
+| Imp 2 | `CLAUDE.md` documented only the server's `TZ=UTC`, reading as a contradiction of the new web pin | **Fixed** — both pins and the reason they differ | `afd90e7` |
+| Imp 3 | The new `CLAUDE.md` sentence forbade a stored preset but omitted the frozen-`now` half of the invariant | **Fixed** | `afd90e7` |
+| Imp 4 | Five lines of select Tailwind duplicated verbatim — introduced by this run | **Fixed** — single `SELECT_CLASS` used by both selects | `afd90e7` |
+| Imp 5 | Frozen `now` means a Refresh crossing midnight leaves the select reading "Last 7 days" over an 8-day-old window | **Escalated to the user — open.** The two options contradict each other: document the limit, or re-anchor `now` on refresh and thereby break the plan's own "does not slide mid-session" guarantee. Not the controller's call | — |
+| Min 1 | The empty-bounds comment read as a correctness guard when the branch is provably a fast path | **Fixed** — comment only, no code change | `8a8c802` |
+| Min 2 | The plan's Risks row and Phase 1 paragraph described a "late-evening local `now`" boundary test, which only discriminates *west* of UTC | **Fixed** | `f068428` |
+| Min 3 | `e.target.value as SelectableRangePreset` is an unchecked cast with no fallback | **Declined.** Unreachable: the only non-selectable option renders solely while already selected, so it can never fire a change event. Guarding it would be error handling for an impossible scenario |  — |
+| Min 4 | `defaultDateRange` is now a one-line alias for `presetRange(DEFAULT_RANGE_PRESET, now)` | **Declined.** Deliberate — it preserves the opening-window guarantee and the five existing tests that pin it | — |
+| Min 5 | `RANGE_PRESETS` is typed `readonly SelectableRangePreset[]` rather than compiler-tied to the union, so a new member would silently never render | **Declined as out of scope.** Identical to the pre-existing `GRANULARITIES`/`Granularity` pattern; tightening it is a repo-wide change, not this plan's | — |
+
+### 6b — Reviewer 2, unnamed-mutation search
+
+First attempt discarded (see the incident below). Re-dispatched against `f068428` in a checkout the controller created **outside the repository tree** and verified by path and SHA before dispatch.
+
+**41 mutations across 9 classes. 34 killed, 7 survived — 6 real findings, all closed in `aa834a8`.** Every suggested test was verified by the reviewer to fail against its mutation and pass against real code, then re-proven mechanically by the controller. Suite went 152 → 163.
+
+| # | Hole | Mutation that survived | Closed by |
+|---|---|---|---|
+| 1 | **The frozen clock was pinned on the read path but not the write path.** The existing clock-advance test clicks a *tab*, never the Range select | `presetRange(…, now)` → `presetRange(…, deps.now())` in the select's `onChange` | *writes a preset window from the frozen clock, not a fresh read* |
+| 2 | **A dead assertion in a pre-existing test.** *sends the current date range on every date change* set To to `2026-07-10` — already the default — so React de-duped it, the event never fired, and the assertion re-read the default. The To input's handler was unproven | To handler `to:` → `from:` (the mirror mutation on From was already killed — that asymmetry was the tell) | split into two symmetric tests, one per input, each with its own killer |
+| 3 | **The `TZ` pin covers only the *day* component.** `2026-07-10 00:30` HK and `2026-07-09` UTC share a year and a month | `getFullYear` → `getUTCFullYear`; `getMonth` → `getUTCMonth` | one date, `2026-01-01 00:30`, puts all three components in disagreement at once |
+| 4 | The `min`/`max` cross-guards on the date inputs were entirely untested; jsdom's `fireEvent.change` bypasses constraint validation, so only an attribute assertion reaches them | swap the two attribute names | *guards each date input against crossing the other bound* |
+| 5 | `toContain` where an exact ordered set was meant — it cannot see position, and the exact-set assertion runs in the default state where Custom is absent | render the Custom option *before* the preset list | ordered `toStrictEqual` over the full five-option list |
+| 6 | The empty state's **unbounded** branch was never rendered, so its copy and its action guard were dead, and its two bounds were interchangeable | three: widen the action guard; `from \|\| to` → `from && to`; transpose the two interpolations so the message names the bounds backwards | three tests, two of which build their own empty-`days` stats |
+| 7 | `SELECT_CLASS` untested, so either select could silently lose its styling | `className={SELECT_CLASS}` → a literal | *gives the Range and Group by selects the same shared styling* — asserts the two agree, which is the invariant the constant exists for, rather than pinning the Tailwind string |
+
+**Declined:** pinning "`now` is read exactly once" via a call count. `useState(deps.now())` does survive, but the extra value is discarded with no user-visible consequence — an implementation detail, not behaviour.
+
+**The most valuable result was a negative.** Asked whether `matchPreset`'s first-match scan order is pinned, the reviewer found the order mutations survive, could not write a failing test, and **stopped rather than report a survivor it could not pin** — then proved why: for any fixed `now` the four candidate windows are pairwise distinct, verified across ~16,000 `now` values (11 years × 4 times of day), so at most one can ever match and scan order is unobservable. These are **equivalent mutants, not a gap.** Scan order is a property of the array literal, which *is* pinned. A future reviewer should not chase it. Same for making the scan skip `'all'`: the empty-bounds fast path answers that input first, so no input can reach the scan with the all-window — consistent with the fast path's documented redundancy, approached from the other side.
+
+**Classes probed that held, so a future reviewer can skip them:** inverted/dropped predicates (dropping either side of `matchPreset`'s comparison, flipping a `===`, `&&`→`||` on the fast path — all killed by the half-open and one-day-off cases); widened bounds (each of the three windows independently pinned; `last30: 31`, `last90: 89`, swapped counts and `last7: 6` all killed); hardcoded returns (all seven variants killed); transposed arguments except holes 2 and 6; structural strength (`toStrictEqual` throughout, `{ from: ' ' }` killed); and fake-vs-real divergence — both harnesses independently kill dropping either `|| undefined` coercion.
+
+**Controller's independent re-proof:** all thirteen mutations across both files re-applied mechanically with anchor counts asserted, `dateRange.ts` and `App.tsx` restored byte-identical, both suites re-verified green. Zero survivors, counts matching both agents' reports.
+
+### Post-fix verification
+
+Root `npm test` → server **98**, web **163**. Root `npm run typecheck` and `npm run build` → clean. `git status --porcelain` clean.
+
+### Incident — a reviewer wrote to the shared working tree
+
+Recorded because the process failure is more instructive than the code was.
+
+The adversarial reviewer was dispatched with worktree isolation. It correctly reported that its worktree had been cut from `origin/main` (the harness default) rather than from the feature branch, and stopped rather than mutating pre-feature code — the stop was possible only because its brief named the expected SHA and told it to halt on mismatch. The controller then authorised it to `checkout --detach` its own worktree onto the target. **What the controller did not verify is that the worktree still existed**; `git worktree list` showed none for it. On resume it fell back to the shared tree and began applying mutations and snapshot-reverting them there.
+
+Damage: the Task 2 follow-up agent's uncommitted Fix 1 was reverted **twice**, and Fix 4 was left half-applied in the worst possible way — both `className={SELECT_CLASS}` usages present with the `SELECT_CLASS` declaration gone, i.e. a file referencing an undefined symbol. A diffstat would not show it and the already-green tests would not catch it; `npm run typecheck` did. The rogue reviewer was also generating mutations beyond its brief (`matchPreset({ from: range.to, to: range.from }, now)` was observed in the shared tree), confirming it was doing real work in the wrong place.
+
+Nothing committed was corrupted — every commit through `8a8c802` verified clean afterwards — and the run's whole first-attempt adversarial output was discarded rather than recorded, because a "survivor" in a tree another agent is concurrently editing is not evidence of anything.
+
+Three lessons, all controller-side:
+1. **A worktree named in a dispatch is not proof of isolation; `git worktree list` is.** Verify before dispatching anything that mutates.
+2. **Never authorise an agent to self-correct its own checkout.** A re-dispatch re-establishes isolation; a `checkout --detach` assumes an isolation that may already be gone.
+3. **Create the isolated checkout yourself, outside the repository tree** — which also sidesteps the nested-worktree test-collection hazard. The retry did exactly this and the controller verified path and HEAD before dispatching.
+
+The teammate agent's report is what surfaced this, unprompted, while it was still mid-task. That is the behaviour the FINDING protocol exists to produce.
+
+### Plan Success Criteria — ticked with evidence
+
+- [x] **The filter card offers Last 7 / 30 / 90 days / All time, and each visibly changes what the charts cover.** `App.test.tsx` *offers the four selectable presets and opens on the last seven days* pins the exact option values and labels; *rewrites both bounds and both inputs when a wider preset is chosen* pins `2026-06-11`/`2026-07-10` reaching `filterStats`; and *widens past the default range through the real filtering layer* proves the change reaches the real filtering path — empty state before, `page-overview` after. That last one is the only assertion no stand-in could have made, and mutation M6 (5 failures) confirms it is what catches a control that moves the inputs without moving the data.
+- [x] **The active preset always reflects the current From/To — hand-editing reads Custom, "Show all time" reads All time.** *reads custom once a date is edited by hand* and *reads all time, not custom, after the empty state clears the range*. Mutations M1 (2 failures) and M5 (1) both fail these, so the derivation is pinned rather than incidental.
+- [x] **Every window is inclusive of both ends with today counted, and correct for a non-UTC local zone.** `dateRange.test.ts` pins all three windows at a fixed clock plus month- and year-boundary crossings; the round-trip identity holds for every preset. The zone half is the one this run had to earn twice: `web/vite.config.mts` now pins `TZ: 'Asia/Hong_Kong'`, and with it the `toISOString()` mutation kills 6 tests where it previously survived all 20 under `TZ=UTC`. The two assertions *named* for this invariant were additionally re-anchored on `00:30` local, after measurement showed a direct `toDayKey` mutation killed 9 tests while the case that exists solely to catch it was **not** among them.
+- [x] **The dashboard still opens on the seven days ending today, and the window still does not slide mid-session.** The pre-existing `App default date range` describe passes byte-unchanged, and the new *keeps reading last7 when the clock advances mid-session* covers what it could not: mutation M3 (dropping the `useState` freeze) fails only that test.
+- [x] **No server file, no contract file and no shared fixture modified; root `npm test` and `npm run typecheck` clean.** `git diff --name-only beec4c8..HEAD` matches nothing under `server/`, no `contracts.ts`, no `__fixtures__`. Suite and typecheck results in 6a above.
+
+### Not verified
+
+**OQ-1 — whether 90 daily x-axis points are legible.** The plan defers this to a human looking at `npm run dev`, and no test can answer it. Untouched by this run's code either way: preset choice does not alter `granularity`, confirmed by Reviewer 1 and by the fact that no assertion about `usageSeries` changed.
 
 ## Carry-Forward Notes
 
@@ -619,6 +703,41 @@ _Durable facts surfaced during execution. Promote to real memory only once stabl
 
 ## Final Summary
 
-_Filled in by executing-task: total tasks, completed, deferred/blocked with the decision each needs, commits, amendments, issues, Final Gate findings and resolutions, verified repo-memory candidates, deviations from plan._
+**Tasks:** 2 planned, 2 completed, 0 deferred. Both waves landed as authored.
 
-—
+**Commits** (`beec4c8..HEAD`, eleven):
+
+| Commit | What |
+|---|---|
+| `fc5794f` | Plan and task breakdown |
+| `c0b30fd` | Task 1 — preset vocabulary: `presetRange`, `matchPreset`, the vocabulary constants |
+| `508f788` | Wave 1 record |
+| `4922c68` | Task 2 — Range select, derived preset, real-layer proof |
+| `c97cdaa` | Wave 2 record |
+| `51be043` | Pin a non-UTC `TZ` for web tests |
+| `56c8c97` | Re-anchor the local-date assertions east of UTC |
+| `8a8c802` | Fast-path comment correction |
+| `afd90e7` | Final Gate fixes: `dateRange` owns the unbounded encoding; both invariants documented; `SELECT_CLASS` |
+| `f068428` | Plan wording corrected for the east-of-UTC pin |
+| `aa834a8` | Close the six coverage holes the adversarial review proved |
+
+**Amendments issued:** none. Every contract was implementable and consumable verbatim, and no stand-in was needed — Task 2 imports the real committed module, which is why the run has a real binding rather than several fakes agreeing with each other.
+
+**Verification:** server 98 tests, web 163 (from 152 at the branch point), typecheck and build clean, tree clean. Nothing was left to CI, because this repo has none.
+
+**Issues, in order of what they cost:**
+
+1. **A reviewer wrote to the shared working tree** and destroyed uncommitted work twice, including leaving a source file referencing an undefined symbol. Full account in the incident section above. Cost: one discarded review, one re-run, three re-applications of a two-line fix. Nothing committed was corrupted.
+2. **The zone invariant was untested on any UTC machine** — the run's most important guarantee, and it took three rounds to close. The pin (`51be043`) made the module-level mutation detectable; the re-anchoring (`56c8c97`) fixed the two tests *named* for the invariant, which were vacuous; the adversarial review (`aa834a8`) then found the pin covered only the day component. Each round was found by measurement rather than by reasoning, and each was real.
+3. **Six task-doc defects**, all in the mutation specs rather than the code: an anchor needing `grep -cF --`, a mispredicted pre-implementation failure mode, M1/M5 anchors that could not both be unique, M6's blast radius understated, M5's second assertion unreachable, and a precondition checking a hoisted binary at the wrong path. All corrected in place.
+
+**Final Gate findings:** Reviewer 1 — Critical none, 5 Important (4 fixed, 1 escalated), 5 Minor (2 fixed, 3 declined with reasons). Reviewer 2 — 6 holes, all closed, plus one well-argued negative that closes off a whole class for future reviewers.
+
+**Open, and the only thing this run did not settle — Reviewer 1's Important 5.** A Refresh crossing midnight leaves the select reading "Last 7 days" over a window that now ends yesterday, with the newly-scanned data visibly missing. Documenting the limit and re-anchoring `now` on refresh are mutually exclusive, and the second contradicts the plan's own "does not slide out from under the user mid-session" guarantee. **Escalated to the user and deliberately left undecided** — the recommendation is to document it, but no answer was received and silence is not agreement, so neither option was implemented. This does not block the branch: the behaviour shipped is the plan's stated design, not an accident.
+
+**Deviations from plan:** none material. Phases 2 and 3 were merged into one task because they share two files and could not have been committed apart — recorded in Preconditions before dispatch rather than discovered during it. Three unplanned commits (`51be043`, `56c8c97`, `aa834a8`) hardened tests without changing behaviour.
+
+**Repo-memory candidates, verified:**
+- Scoped web tests run as `npm test --prefix web -- run <path>`; the root `npm test` reaches both packages and the non-owning one exits non-zero.
+- Both packages pin `TZ` via `test.env` and **deliberately disagree** — server UTC, web `Asia/Hong_Kong`. Now documented in `CLAUDE.md`, so it needs no separate memory entry.
+- Worktree isolation for a subagent branches from `origin/main` by default, so a reviewer dispatched that way lands at the *base* of the range under review, not its tip. Verify with `git worktree list` before dispatching anything that mutates, and create the checkout outside the repository tree.
