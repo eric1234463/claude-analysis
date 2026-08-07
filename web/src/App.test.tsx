@@ -38,10 +38,10 @@ describe('App navigation', () => {
     expect(screen.queryByTestId('page-skills')).toBeNull();
   });
 
-  it('offers all four pages', () => {
+  it('offers all five pages', () => {
     const { deps } = fakes();
     render(<App stats={stats} deps={deps} />);
-    for (const name of ['Overview', 'Skills', 'Tools', 'Efficiency']) {
+    for (const name of ['Overview', 'Cost', 'Skills', 'Tools', 'Efficiency']) {
       expect(screen.getByRole('button', { name })).toBeTruthy();
     }
   });
@@ -55,6 +55,14 @@ describe('App navigation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Tools' }));
     expect(screen.getByTestId('page-tools')).toBeTruthy();
     expect(screen.queryByTestId('page-efficiency')).toBeNull();
+  });
+
+  it('mounts the Cost page and unmounts Overview when Cost is picked', () => {
+    const { deps } = fakes();
+    render(<App stats={stats} deps={deps} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Cost' }));
+    expect(screen.getByTestId('page-cost')).toBeTruthy();
+    expect(screen.queryByTestId('page-overview')).toBeNull();
   });
 });
 

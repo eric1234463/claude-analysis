@@ -15,6 +15,7 @@ import { EmptyState } from '@/components/charts';
 import { cn } from '@/lib/utils';
 import { formatNumber } from '@/lib/format';
 import { Overview } from './pages/Overview';
+import { Cost } from './pages/Cost';
 import { Skills } from './pages/Skills';
 import { Tools } from './pages/Tools';
 import { Efficiency } from './pages/Efficiency';
@@ -35,6 +36,7 @@ export interface AppProps {
 
 const PAGES = [
   { name: 'Overview', Component: Overview },
+  { name: 'Cost', Component: Cost },
   { name: 'Skills', Component: Skills },
   { name: 'Tools', Component: Tools },
   { name: 'Efficiency', Component: Efficiency },
@@ -42,6 +44,7 @@ const PAGES = [
 
 const PAGE_SUBTITLES: Record<(typeof PAGES)[number]['name'], string> = {
   Overview: 'Token volume, sessions and where they were spent.',
+  Cost: 'What each model costs at API list price, and whether it earns its rate.',
   Skills: 'Which of your own skills you actually reach for. Claude Code built-ins are excluded.',
   Tools: 'Tool call volume and where calls fail.',
   Efficiency: 'Cache reuse, error rates and subagent leverage.',
