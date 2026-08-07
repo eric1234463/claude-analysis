@@ -108,7 +108,7 @@ flowchart TD
 
 | Risk | Impact | Mitigation |
 |------|:------:|------------|
-| Preset arithmetic drifts to `toISOString()` and shifts day keys by one for a non-UTC user | Med | Every preset window is built through the existing `toDayKey`; unit coverage asserts a preset boundary at a late-evening local `now`, the case that already broke once and is locked in `dateRange.test.ts` |
+| Preset arithmetic drifts to `toISOString()` and shifts day keys by one for a non-UTC user | Med | Every preset window is built through the existing `toDayKey`; unit coverage asserts a preset boundary at a local time whose UTC date differs — **early-morning** local, `00:30`, since the test run is pinned to a zone east of UTC. _Corrected during execution: this row originally said "late-evening local `now`", which only discriminates **west** of UTC. That was the pre-existing comment's error, it propagated into the new test, and both were fixed in `56c8c97`; the web test run is now zone-pinned in `web/vite.config.mts` so the assertion cannot go vacuous on someone else's machine._ |
 | Off-by-one in "last N days" — 90 days rendered as 91 or 89 | Med | Windows are inclusive of both ends with today counted; each of 7/30/90 gets an explicit expected `{ from, to }` pair, plus a month- and a year-boundary crossing |
 | `matchPreset` and `presetRange` disagree, so choosing a preset immediately reads as Custom | Med | A round-trip assertion per preset: `matchPreset(presetRange(p, now), now) === p` |
 | 90 days at daily granularity produces an unreadably dense x-axis | Low | Ship as-is; Group by Weekly is one control away. Tracked as OQ-1 rather than pre-solved |
@@ -130,7 +130,7 @@ No migration required. No schema, no persisted state, no API surface — the fea
 
 ### Phase 1: Preset vocabulary
 
-Extend `web/src/api/dateRange.ts` with the preset identifiers, their dropdown labels, `presetRange`, and `matchPreset`, keeping `toDayKey` and `defaultDateRange` as the reused inclusive-window primitives. This phase is pure date arithmetic with no React and no imports beyond what the module already has. Done when the preset unit suite — including the round-trip identity and the late-evening local-`now` boundary — passes, and `defaultDateRange`'s existing tests still pass untouched.
+Extend `web/src/api/dateRange.ts` with the preset identifiers, their dropdown labels, `presetRange`, and `matchPreset`, keeping `toDayKey` and `defaultDateRange` as the reused inclusive-window primitives. This phase is pure date arithmetic with no React and no imports beyond what the module already has. Done when the preset unit suite — including the round-trip identity and the local-`now` boundary whose UTC date differs (early morning under the pinned east-of-UTC zone; see the Risks table) — passes, and `defaultDateRange`'s existing tests still pass untouched.
 
 ### Phase 2: Range control in the filter card
 
