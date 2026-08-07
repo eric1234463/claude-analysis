@@ -16,7 +16,7 @@ wiki: false
 
 **Goal:** Answer two questions the dashboard cannot answer today — *how many USD did each model cost me*, and *am I spending those tokens efficiently on each model* — from data already in the transcripts.
 
-**Architecture:** Cost is money, so it is computed once in the aggregator (where the day key still exists and rates can be date-effective) and stored as **mergeable integer micro-USD cells**, exactly like the existing `ThroughputCounts`. The frontend sums cells and never multiplies a rate. Pricing needs a dimension the parser currently discards: `cache_creation` splits into 1-hour and 5-minute TTL tokens, which price at 2× and 1.25× base input respectively — so `TokenUsage` gains that split while `TokenTotals` keeps `cacheCreation` as their sum, leaving every existing chart's arithmetic untouched. A model with no rate row is never guessed at: its tokens accumulate into an `unpricedTokens` counter so the total stays auditable, the same honesty discipline `throughput.excludedRequests` already follows — though no model in the current data is unpriced, so the counter ships without a page surface.
+**Architecture:** Cost is money, so it is computed once in the aggregator (where the day key still exists and rates can be date-effective) and stored as **mergeable integer nano-USD cells**, exactly like the existing `ThroughputCounts`. The frontend sums cells and never multiplies a rate. Pricing needs a dimension the parser currently discards: `cache_creation` splits into 1-hour and 5-minute TTL tokens, which price at 2× and 1.25× base input respectively — so `TokenUsage` gains that split (and `TokenTotals` inherits it, via `extends` — see F-1), while `cacheCreation` stays authoritative for token display and `total` keeps its four-term formula, leaving every existing chart's arithmetic untouched. A model with no rate row is never guessed at: its tokens accumulate into an `unpricedTokens` counter so the total stays auditable, the same honesty discipline `throughput.excludedRequests` already follows — though no model in the current data is unpriced, so the counter ships without a page surface.
 
 **Branch:** feature/DASH-0000-model-cost-and-efficiency — carried through task breakdown and execution unchanged
 
@@ -38,7 +38,7 @@ wiki: false
 
 - Cost cells must merge associatively across day, project, model and time-bucket boundaries. No figure that can only be computed at one granularity.
 - Rates are **date-effective**: the rate applied to a day's tokens is the rate in force on that day key. A price change must not retroactively reprice history.
-- Money is stored as **integer micro-USD** (1e-6 USD). Summation is therefore exact and fixture assertions are exact; no floating-point drift across thousands of cells.
+- Money is stored as **integer nano-USD** (1e-9 USD). At nano granularity every published rate is an exact integer per token (a USD-per-MTok rate R maps to R x 1000), so there is no rounding step anywhere: summation is exact and fixture assertions are exact. _(Corrected during execution — this section originally specified micro-USD, at which an Opus cache read of $0.50/MTok is 0.5 uUSD per token and would have forced a rounding step. See `docs/tasks/2026-08-07-model-cost-and-efficiency-tasks.md`, Precondition 5.)_
 - The parser stays pure — no clock, no fs, no ambient timezone. The TTL split is read from fields already on the line.
 - The persisted per-file cache must not serve pre-change `ParsedFile` entries that lack the TTL split; a stale hit would silently price all cache-writes at zero.
 
@@ -55,10 +55,10 @@ wiki: false
 
 ## Options Considered
 
-### Recommended: Price in the aggregator, store mergeable micro-USD cells
+### Recommended: Price in the aggregator, store mergeable nano-USD cells
 
 - **Shape:** the aggregator looks up `{model, day, speed}` in a rate table and accumulates a `CostBreakdown` per cell and per model. The frontend adds cells and formats.
-- **Pros:** the day key — the only place a date-effective rate can be resolved correctly — is present exactly once, in the aggregator, matching the existing invariant that days are bucketed once. Cells merge by addition, so date-range filtering, project filtering and weekly/monthly bucketing all reuse `mergeUsageCounts` with no new code path. Integer micro-USD makes fixture arithmetic exact.
+- **Pros:** the day key — the only place a date-effective rate can be resolved correctly — is present exactly once, in the aggregator, matching the existing invariant that days are bucketed once. Cells merge by addition, so date-range filtering, project filtering and weekly/monthly bucketing all reuse `mergeUsageCounts` with no new code path. Integer nano-USD makes fixture arithmetic exact.
 - **Cons:** `UsageCounts` and the shared fixture grow; the rate table lives on the server, so changing a price is a server change rather than a frontend constant.
 
 ### Not recommended: Compute cost in the frontend from `stats.days`
@@ -107,9 +107,13 @@ flowchart LR
 
 ### Key Design Decisions
 
-- **Money is integer micro-USD, not floats.** A rate is dollars per million tokens; `tokens × rate` in micro-USD is integer arithmetic with one rounding step per (cell, model, bucket). Sums are then exact and associative, so a weekly total equals the sum of its days by construction, and the fixture can assert an exact integer instead of a tolerance.
+- **Money is integer nano-USD, not floats.** A rate is dollars per million tokens; at nano granularity `tokens × rate` is integer arithmetic with **no rounding step at all**, because every rate in the table is a whole number of nano-USD per token. Sums are then exact and associative, so a weekly total equals the sum of its days by construction, and the fixture can assert an exact integer instead of a tolerance. Headroom: the measured real-data total is ≈ $3,327 = 3.33e12 nUSD against `Number.MAX_SAFE_INTEGER` = 9.007e15.
 - **The rate key includes `speed`, even though no fast-mode traffic exists today.** Fast mode doubles the Opus 5 rate. Keying the seam on speed now means enabling it later is a table-data edit rather than a contract change — and means the number never quietly halves.
-- **`TokenTotals` is not extended.** The 1h/5m split lives on `TokenUsage` (the event), is consumed by the aggregator to price, and is not carried into `TokenTotals`. `cacheCreation` stays the sum of the two, so every existing cache-hit-ratio calculation is byte-for-byte unchanged.
+- **~~`TokenTotals` is not extended.~~ — WRONG, corrected during execution.** `TokenTotals extends TokenUsage`
+  (`server/src/stats/contracts.ts:72`, `web/src/api/types.ts:19`), so adding the split to `TokenUsage` makes it required on
+  every `TokenTotals` by inheritance, not by choice. What survives of the intent: `cacheCreation` remains authoritative for
+  token display and `total` keeps its four-term formula (`input + output + cacheRead + cacheCreation`), so every existing
+  cache-hit-ratio calculation is byte-for-byte unchanged. See finding F-1 in the task doc.
 - **Unpriced tokens are counted, never estimated.** A model with no rate row for that day contributes `0` USD and increments `unpricedTokens`. Nearest-model or newest-rate fallbacks would produce a plausible wrong number, which is worse than a visibly incomplete one. The counter exists so `cost.total` stays auditable even though this iteration renders no UI for it.
 - **Cost is derived from model-attributed tokens only.** `cost.total` equals the sum over `modelCost`, so it excludes `<synthetic>` by construction — no second exclusion rule to keep in sync.
 - **Cache savings are reported net, against the uncached counterfactual, and both halves are shown.** Per model, per cell:
@@ -145,7 +149,7 @@ Derived rows (cache write 5m = 1.25× input, 1h = 2× input, cache read = 0.1× 
 | Published rates change and the hardcoded table goes stale, so the dashboard reports confident wrong numbers | Medium | Date-effective rows mean a change is an append, not an overwrite; the table carries a comment naming its source and the date it was last verified |
 | Sonnet 5's 2026-09-01 rate change is implemented as a global switch rather than a per-day lookup, retroactively repricing August | Medium | A regression test pins that an 2026-08-15 day and an 2026-09-15 day with identical token counts produce different costs |
 | The reader mistakes list-price equivalence for an actual bill | Low | The figure *is* the deliverable (Decision 6); a footnote reading "at API list price" on the headline stat is sufficient |
-| Fixture arithmetic is edited without redoing the hand-computed headline numbers, silently weakening both packages' tests | Medium | Fixture cost fields are hand-computed from round token counts and asserted exactly in `stats.module.test.ts`; integer micro-USD makes the expected value unambiguous |
+| Fixture arithmetic is edited without redoing the hand-computed headline numbers, silently weakening both packages' tests | Medium | Fixture cost fields are hand-computed from round token counts and asserted exactly in `stats.module.test.ts`; integer nano-USD makes the expected value unambiguous |
 
 ## Migration
 
@@ -213,7 +217,7 @@ None. Every question raised during planning was resolved and is recorded under `
 
 ## Success Criteria
 
-- [ ] `GET /api/stats` returns a `cost` and `modelCost` on every `UsageCounts` cell, in integer micro-USD, with `cost.total` equal to the sum over `modelCost`.
+- [ ] `GET /api/stats` returns a `cost` and `modelCost` on every `UsageCounts` cell, in integer nano-USD, with `cost.total` equal to the sum over `modelCost`.
 - [ ] Against the real `~/.claude/projects` transcripts, the Cost page shows non-zero USD for `claude-opus-5`, `claude-opus-4-8`, `claude-sonnet-5` and `claude-fable-5`, and `unpricedTokens` is `0` (Assumption 6). A synthetic fixture with an unknown model proves the counter increments.
 - [ ] Each model shows cache-write spend, cache-read spend, and a net saving equal to their uncached counterfactual minus their sum.
 - [ ] A weekly bucket's USD equals the sum of its days' USD exactly, and a project-filtered total equals the sum of that project's cells.
