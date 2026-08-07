@@ -12,9 +12,10 @@ import {
 
 describe('toDayKey', () => {
   it('formats a local calendar date, not a UTC one', () => {
-    // 23:30 local on the 9th is the 10th in UTC anywhere east of +00:30. The key
-    // must still read as the 9th, matching how the aggregator buckets the day.
-    expect(toDayKey(new Date(2026, 6, 9, 23, 30))).toBe('2026-07-09');
+    // 00:30 local on the 10th is still the 9th in UTC anywhere east of +00:30, so a
+    // `toISOString()` implementation would report the 9th here. The key must read as
+    // the 10th, matching how the aggregator buckets the day.
+    expect(toDayKey(new Date(2026, 6, 10, 0, 30))).toBe('2026-07-10');
   });
 
   it('zero-pads single-digit months and days', () => {
@@ -86,10 +87,12 @@ describe('presetRange', () => {
   });
 
   it('uses the local calendar date, not the UTC one', () => {
-    // 23:30 local on the 9th is already the 10th in UTC anywhere east of +00:30.
-    const now = new Date(2026, 6, 9, 23, 30);
-    expect(presetRange('last7', now)).toStrictEqual({ from: '2026-07-03', to: '2026-07-09' });
-    expect(presetRange('last90', now)).toStrictEqual({ from: '2026-04-11', to: '2026-07-09' });
+    // 00:30 local is still the previous day in UTC anywhere east of +00:30, and that
+    // holds for both ends of the window, so a `toISOString()` implementation shifts
+    // every key here one day earlier.
+    const now = new Date(2026, 6, 10, 0, 30);
+    expect(presetRange('last7', now)).toStrictEqual({ from: '2026-07-04', to: '2026-07-10' });
+    expect(presetRange('last90', now)).toStrictEqual({ from: '2026-04-12', to: '2026-07-10' });
   });
 
   it('clears both bounds for all time, whatever the clock says', () => {
