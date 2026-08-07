@@ -5,7 +5,14 @@ import type { SeriesPoint, StatsFilter } from './api/filterStats';
 import { filterStats as realFilterStats, usageSeries as realUsageSeries } from './api/filterStats';
 import { GRANULARITIES, GRANULARITY_LABELS, type Granularity } from './api/granularity';
 import { refreshStats as realRefreshStats } from './api/client';
-import { defaultDateRange } from './api/dateRange';
+import {
+  defaultDateRange,
+  matchPreset,
+  presetRange,
+  RANGE_PRESETS,
+  RANGE_PRESET_LABELS,
+  type SelectableRangePreset,
+} from './api/dateRange';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -50,6 +57,13 @@ const PAGE_SUBTITLES: Record<(typeof PAGES)[number]['name'], string> = {
   Efficiency: 'Cache reuse, error rates and subagent leverage.',
 };
 
+/** Shared by the filter card's two native selects so they cannot drift apart visually. */
+const SELECT_CLASS = cn(
+  'h-11 w-[10.5rem] cursor-pointer appearance-none rounded-md border border-input',
+  'bg-transparent px-3 text-sm text-foreground shadow-xs transition-colors duration-200',
+  'focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none',
+);
+
 export function App(props: AppProps) {
   const deps = props.deps ?? {
     filterStats: realFilterStats,
@@ -60,15 +74,20 @@ export function App(props: AppProps) {
 
   const [stats, setStats] = useState(props.stats);
   const [page, setPage] = useState<(typeof PAGES)[number]['name']>('Overview');
-  // Opens on the last 7 days; the initialiser runs once so the window does not
-  // slide out from under the user mid-session.
-  const [range, setRange] = useState(() => defaultDateRange(deps.now()));
+  // Read once and shared by the initial range, the Range select and every preset it
+  // writes, so none of them slides forward when the clock crosses midnight mid-session.
+  const [now] = useState(() => deps.now());
+  // Opens on the last 7 days.
+  const [range, setRange] = useState(() => defaultDateRange(now));
   const [projects, setProjects] = useState<string[]>([]);
   const [granularity, setGranularity] = useState<Granularity>('day');
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
 
   const { from, to } = range;
+  // Derived, never stored: `range` is the single source of truth, so a hand-edited
+  // date reads back as Custom without a second piece of state to keep in step.
+  const rangePreset = matchPreset(range, now);
 
   const filtered = deps.filterStats(stats, {
     from: from || undefined,
@@ -162,6 +181,27 @@ export function App(props: AppProps) {
           <CardContent className="space-y-4 px-5">
             <div className="flex flex-wrap items-end gap-4">
               <div className="grid gap-1.5">
+                <Label htmlFor="range" className="text-xs text-muted-foreground">
+                  Range
+                </Label>
+                <select
+                  id="range"
+                  value={rangePreset}
+                  onChange={(e) => setRange(presetRange(e.target.value as SelectableRangePreset, now))}
+                  className={SELECT_CLASS}
+                >
+                  {RANGE_PRESETS.map((option) => (
+                    <option key={option} value={option}>
+                      {RANGE_PRESET_LABELS[option]}
+                    </option>
+                  ))}
+                  {/* Only while active: Custom is a state to display, not a window to pick. */}
+                  {rangePreset === 'custom' && (
+                    <option value="custom">{RANGE_PRESET_LABELS.custom}</option>
+                  )}
+                </select>
+              </div>
+              <div className="grid gap-1.5">
                 <Label htmlFor="from-date" className="text-xs text-muted-foreground">
                   From
                 </Label>
@@ -195,11 +235,7 @@ export function App(props: AppProps) {
                   id="granularity"
                   value={granularity}
                   onChange={(e) => setGranularity(e.target.value as Granularity)}
-                  className={cn(
-                    'h-11 w-[10.5rem] cursor-pointer appearance-none rounded-md border border-input',
-                    'bg-transparent px-3 text-sm text-foreground shadow-xs transition-colors duration-200',
-                    'focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none',
-                  )}
+                  className={SELECT_CLASS}
                 >
                   {GRANULARITIES.map((option) => (
                     <option key={option} value={option}>
@@ -306,7 +342,7 @@ export function App(props: AppProps) {
                   type="button"
                   variant="secondary"
                   className="min-h-9 cursor-pointer"
-                  onClick={() => setRange({ from: '', to: '' })}
+                  onClick={() => setRange(presetRange('all', now))}
                 >
                   Show all time
                 </Button>

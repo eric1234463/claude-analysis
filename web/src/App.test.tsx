@@ -111,14 +111,39 @@ describe('App filtering delegates to the injected layer', () => {
     expect(screen.getByText(filtered.projects[0])).toBeTruthy();
   });
 
-  it('sends the current date range on every date change', () => {
+  it('writes the From input into the `from` bound, leaving `to` alone', () => {
     const { deps, seen } = fakes();
     render(<App stats={stats} deps={deps} />);
+    // Must differ from the default `from` (2026-07-04), or fireEvent.change is a no-op.
     fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-07-09' } });
-    fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-07-10' } });
     const last = seen[seen.length - 1];
     expect(last.from).toBe('2026-07-09');
     expect(last.to).toBe('2026-07-10');
+    expect((screen.getByLabelText('From') as HTMLInputElement).value).toBe('2026-07-09');
+    expect((screen.getByLabelText('To') as HTMLInputElement).value).toBe('2026-07-10');
+  });
+
+  it('writes the To input into the `to` bound, leaving `from` alone', () => {
+    const { deps, seen } = fakes();
+    render(<App stats={stats} deps={deps} />);
+    // Must differ from the default `to` (2026-07-10), or fireEvent.change is a no-op.
+    fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-07-08' } });
+    const last = seen[seen.length - 1];
+    expect(last.from).toBe('2026-07-04');
+    expect(last.to).toBe('2026-07-08');
+    expect((screen.getByLabelText('From') as HTMLInputElement).value).toBe('2026-07-04');
+    expect((screen.getByLabelText('To') as HTMLInputElement).value).toBe('2026-07-08');
+  });
+
+  it('guards each date input against crossing the other bound', () => {
+    const { deps } = fakes();
+    render(<App stats={stats} deps={deps} />);
+    const fromInput = screen.getByLabelText('From') as HTMLInputElement;
+    const toInput = screen.getByLabelText('To') as HTMLInputElement;
+    expect(fromInput.max).toBe('2026-07-10');
+    expect(fromInput.min).toBe('');
+    expect(toInput.min).toBe('2026-07-04');
+    expect(toInput.max).toBe('');
   });
 
   it('sends the selected project keys', () => {
@@ -229,6 +254,146 @@ describe('App integration with the real filtering layer', () => {
     fireEvent.click(screen.getByRole('button', { name: /show all time/i }));
     expect(screen.getByTestId('page-overview')).toBeTruthy();
     expect((screen.getByLabelText('From') as HTMLInputElement).value).toBe('');
+  });
+
+  it('widens past the default range through the real filtering layer', () => {
+    renderReal(new Date(2026, 7, 2));
+    expect(screen.queryByTestId('page-overview')).toBeNull();
+    fireEvent.change(screen.getByLabelText('Range'), { target: { value: 'last90' } });
+    expect(screen.getByTestId('page-overview')).toBeTruthy();
+    expect((screen.getByLabelText('From') as HTMLInputElement).value).toBe('2026-05-05');
+  });
+
+  it('reads all time, not custom, after the empty state clears the range', () => {
+    renderReal(new Date(2026, 7, 2));
+    fireEvent.click(screen.getByRole('button', { name: /show all time/i }));
+    expect((screen.getByLabelText('Range') as HTMLSelectElement).value).toBe('all');
+  });
+
+  it('names the two bounds in order in the empty-state message', () => {
+    renderReal(new Date(2026, 7, 2));
+    expect(screen.getByText(/between 2026-07-27 and 2026-08-02/)).toBeTruthy();
+  });
+
+  it('says nothing has been parsed, with no widen button, when the range is unbounded and still empty', () => {
+    const empty: AggregateStats = { ...stats, days: {} };
+    render(
+      <App
+        stats={empty}
+        deps={{ filterStats, usageSeries, refreshStats: vi.fn(async () => empty), now: () => NOW }}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /show all time/i }));
+    expect(screen.getByText(/no transcripts have been parsed yet/i)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /show all time/i })).toBeNull();
+  });
+
+  it('still describes a half-open range rather than claiming nothing was parsed', () => {
+    const empty: AggregateStats = { ...stats, days: {} };
+    render(
+      <App
+        stats={empty}
+        deps={{ filterStats, usageSeries, refreshStats: vi.fn(async () => empty), now: () => NOW }}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('To'), { target: { value: '' } });
+    expect(screen.getByText(/nothing was recorded between 2026-07-04 and today/i)).toBeTruthy();
+    expect(screen.queryByText(/no transcripts have been parsed yet/i)).toBeNull();
+  });
+});
+
+describe('App date range presets', () => {
+  it('offers the four selectable presets and opens on the last seven days', () => {
+    const { deps, seen } = fakes();
+    render(<App stats={stats} deps={deps} />);
+    const select = screen.getByLabelText('Range') as HTMLSelectElement;
+    expect(select.value).toBe('last7');
+    const options = [...select.options];
+    expect(options.map((o) => o.value)).toStrictEqual(['last7', 'last30', 'last90', 'all']);
+    expect(options.map((o) => o.textContent)).toStrictEqual([
+      'Last 7 days',
+      'Last 30 days',
+      'Last 90 days',
+      'All time',
+    ]);
+    expect(seen[0].from).toBe('2026-07-04');
+    expect(seen[0].to).toBe('2026-07-10');
+  });
+
+  it('rewrites both bounds and both inputs when a wider preset is chosen', () => {
+    const { deps, seen } = fakes();
+    render(<App stats={stats} deps={deps} />);
+    fireEvent.change(screen.getByLabelText('Range'), { target: { value: 'last30' } });
+    const last = seen[seen.length - 1];
+    expect(last.from).toBe('2026-06-11');
+    expect(last.to).toBe('2026-07-10');
+    expect((screen.getByLabelText('From') as HTMLInputElement).value).toBe('2026-06-11');
+    expect((screen.getByLabelText('To') as HTMLInputElement).value).toBe('2026-07-10');
+  });
+
+  it('clears both bounds for all time', () => {
+    const { deps, seen } = fakes();
+    render(<App stats={stats} deps={deps} />);
+    fireEvent.change(screen.getByLabelText('Range'), { target: { value: 'all' } });
+    const last = seen[seen.length - 1];
+    expect(last.from).toBeUndefined();
+    expect(last.to).toBeUndefined();
+    expect((screen.getByLabelText('From') as HTMLInputElement).value).toBe('');
+  });
+
+  it('reads custom once a date is edited by hand', () => {
+    const { deps } = fakes();
+    render(<App stats={stats} deps={deps} />);
+    fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-07-09' } });
+    const select = screen.getByLabelText('Range') as HTMLSelectElement;
+    expect(select.value).toBe('custom');
+    // Ordered and exact: Custom is appended after the presets, never spliced in front.
+    expect([...select.options].map((o) => o.value)).toStrictEqual([
+      'last7',
+      'last30',
+      'last90',
+      'all',
+      'custom',
+    ]);
+    expect([...select.options].map((o) => o.textContent)).toStrictEqual([
+      'Last 7 days',
+      'Last 30 days',
+      'Last 90 days',
+      'All time',
+      'Custom',
+    ]);
+  });
+
+  it('keeps reading last7 when the clock advances mid-session', () => {
+    const { deps } = fakes();
+    let current = new Date(2026, 6, 10);
+    deps.now = () => current;
+    render(<App stats={stats} deps={deps} />);
+    current = new Date(2026, 6, 20);
+    fireEvent.click(screen.getByRole('button', { name: 'Tools' }));
+    expect((screen.getByLabelText('Range') as HTMLSelectElement).value).toBe('last7');
+  });
+
+  it('writes a preset window from the frozen clock, not a fresh read', () => {
+    const { deps, seen } = fakes();
+    let current = new Date(2026, 6, 10);
+    deps.now = () => current;
+    render(<App stats={stats} deps={deps} />);
+    current = new Date(2026, 6, 20);
+    fireEvent.change(screen.getByLabelText('Range'), { target: { value: 'last30' } });
+    const last = seen[seen.length - 1];
+    expect(last.from).toBe('2026-06-11');
+    expect(last.to).toBe('2026-07-10');
+    expect((screen.getByLabelText('Range') as HTMLSelectElement).value).toBe('last30');
+  });
+
+  it('gives the Range and Group by selects the same shared styling', () => {
+    const { deps } = fakes();
+    render(<App stats={stats} deps={deps} />);
+    const range = screen.getByLabelText('Range') as HTMLSelectElement;
+    const groupBy = screen.getByLabelText('Group by') as HTMLSelectElement;
+    expect(range.className).toBe(groupBy.className);
+    expect(range.className).toContain('appearance-none');
   });
 });
 
