@@ -8,8 +8,10 @@ import { JsonFileAggregateCache, fileCacheKey } from './file-cache';
 const parsed: ParsedFile = {
   events: [
     { kind: 'token', day: '2026-07-09', project: '-a', model: 'claude-opus-4-8',
-      dedupeKey: 'r1', usage: { input: 1, output: 2, cacheRead: 3, cacheCreation: 4 },
-      isSidechain: false },
+      dedupeKey: 'r1',
+      usage: { input: 1, output: 2, cacheRead: 3, cacheCreation: 4,
+        cacheCreation1h: 1, cacheCreation5m: 3 },
+      speed: 'standard', isSidechain: false },
   ],
   malformedLines: 3,
   ignoredLines: 4,
@@ -27,12 +29,24 @@ describe('fileCacheKey', () => {
 
   it('is path, mtime, size and time zone joined by colons', () => {
     expect(fileCacheKey(base, 'Asia/Hong_Kong'))
-      .toBe('/r/-a/s.jsonl:1700000000000:42:Asia/Hong_Kong:v2');
+      .toBe('/r/-a/s.jsonl:1700000000000:42:Asia/Hong_Kong:v3');
   });
 
   it('no longer matches the pre-throughput key format, so stale entries miss once', () => {
     expect(fileCacheKey(base, 'Asia/Hong_Kong'))
       .not.toBe('/r/-a/s.jsonl:1700000000000:42:Asia/Hong_Kong');
+  });
+
+  it('is versioned v3, so entries parsed before the TTL split and speed miss once', () => {
+    expect(fileCacheKey(base, 'Asia/Hong_Kong')).toMatch(/:v3$/);
+    expect(fileCacheKey(base, 'Asia/Hong_Kong'))
+      .not.toBe('/r/-a/s.jsonl:1700000000000:42:Asia/Hong_Kong:v2');
+  });
+
+  it('does not serve a stored v2 entry to a v3 lookup for the same file', () => {
+    const cache = new JsonFileAggregateCache(store);
+    cache.set('/r/-a/s.jsonl:1700000000000:42:Asia/Hong_Kong:v2', parsed);
+    expect(cache.get(fileCacheKey(base, 'Asia/Hong_Kong'))).toBeUndefined();
   });
 
   it('changes when any single input changes', () => {

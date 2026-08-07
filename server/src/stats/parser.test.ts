@@ -82,7 +82,9 @@ describe('token extraction and dedupe', () => {
     const synthetic = tokens(parseMain().events).filter((e) => e.model === '<synthetic>');
     expect(synthetic).toHaveLength(1);
     expect(synthetic[0].dedupeKey).toBe('u-syn-1');
-    expect(synthetic[0].usage).toStrictEqual({ input: 0, output: 0, cacheRead: 0, cacheCreation: 0 });
+    expect(synthetic[0].usage).toStrictEqual({
+      input: 0, output: 0, cacheRead: 0, cacheCreation: 0, cacheCreation1h: 0, cacheCreation5m: 0,
+    });
   });
 
   it('buckets by the configured local time, not UTC', () => {
@@ -107,6 +109,129 @@ describe('token extraction and dedupe', () => {
     expect(t.every((e) => e.agentId === 'afixture0000000001')).toBe(true);
     expect(t.every((e) => e.agentType === 'general-purpose')).toBe(true);
     expect(tokens(parseMain().events).every((e) => e.isSidechain === false)).toBe(true);
+  });
+});
+
+describe('cache-creation TTL split', () => {
+  const withCacheCreation = (usage: object) =>
+    tokenOf(parseTranscript(MAIN, [
+      line({ type: 'assistant', requestId: 'r1', timestamp: '2026-08-05T00:00:02.000Z',
+        message: { model: 'claude-opus-5', usage } }),
+    ], 'UTC'), 'r1').usage;
+
+  it('reads both TTLs from the nested object when the parts sum to the flat total', () => {
+    const usage = withCacheCreation({
+      cache_creation_input_tokens: 6069,
+      cache_creation: { ephemeral_1h_input_tokens: 4000, ephemeral_5m_input_tokens: 2069 },
+    });
+    expect(usage.cacheCreation).toBe(6069);
+    expect(usage.cacheCreation1h).toBe(4000);
+    expect(usage.cacheCreation5m).toBe(2069);
+  });
+
+  it('attributes the whole total to 5m when the nested object is absent', () => {
+    const usage = withCacheCreation({ cache_creation_input_tokens: 500 });
+    expect(usage.cacheCreation).toBe(500);
+    expect(usage.cacheCreation1h).toBe(0);
+    // Transcripts written before `cache_creation` existed must not price at zero.
+    expect(usage.cacheCreation5m).toBe(500);
+  });
+
+  it('attributes the unexplained remainder to 5m when the nested object is partial', () => {
+    const usage = withCacheCreation({
+      cache_creation_input_tokens: 100,
+      cache_creation: { ephemeral_1h_input_tokens: 30 },
+    });
+    expect(usage.cacheCreation).toBe(100);
+    expect(usage.cacheCreation1h).toBe(30);
+    expect(usage.cacheCreation5m).toBe(70);
+  });
+
+  it('adds the remainder to a declared 5m when the parts sum below the flat total', () => {
+    const usage = withCacheCreation({
+      cache_creation_input_tokens: 100,
+      cache_creation: { ephemeral_1h_input_tokens: 10, ephemeral_5m_input_tokens: 20 },
+    });
+    expect(usage.cacheCreation).toBe(100);
+    expect(usage.cacheCreation1h).toBe(10);
+    expect(usage.cacheCreation5m).toBe(90);
+  });
+
+  it('clamps the remainder at zero and keeps the flat field authoritative when the parts sum above it', () => {
+    const usage = withCacheCreation({
+      cache_creation_input_tokens: 10,
+      cache_creation: { ephemeral_1h_input_tokens: 8, ephemeral_5m_input_tokens: 9 },
+    });
+    expect(usage.cacheCreation).toBe(10);
+    expect(usage.cacheCreation1h).toBe(8);
+    expect(usage.cacheCreation5m).toBe(9);
+  });
+
+  it('leaves all three at zero when there is no cache creation', () => {
+    const usage = withCacheCreation({ input_tokens: 5, output_tokens: 7 });
+    expect(usage.cacheCreation).toBe(0);
+    expect(usage.cacheCreation1h).toBe(0);
+    expect(usage.cacheCreation5m).toBe(0);
+  });
+
+  it('never throws when cache_creation is not an object, and degrades to all-5m', () => {
+    const parsed = parseTranscript(MAIN, [
+      line({ type: 'assistant', requestId: 'r1', timestamp: '2026-08-05T00:00:02.000Z',
+        message: { model: 'claude-opus-5',
+          usage: { cache_creation_input_tokens: 400, cache_creation: 'ephemeral_1h' } } }),
+    ], 'UTC');
+    expect(parsed.malformedLines).toBe(0);
+    expect(tokenOf(parsed, 'r1').usage.cacheCreation).toBe(400);
+    expect(tokenOf(parsed, 'r1').usage.cacheCreation1h).toBe(0);
+    expect(tokenOf(parsed, 'r1').usage.cacheCreation5m).toBe(400);
+  });
+
+  it('keeps the last usage-bearing occurrence of a requestId, split included', () => {
+    const parsed = parseTranscript(MAIN, [
+      line({ type: 'assistant', requestId: 'r1', timestamp: '2026-08-05T00:00:02.000Z',
+        message: { model: 'claude-opus-5', usage: {
+          cache_creation_input_tokens: 100,
+          cache_creation: { ephemeral_1h_input_tokens: 100, ephemeral_5m_input_tokens: 0 },
+        } } }),
+      line({ type: 'assistant', requestId: 'r1', timestamp: '2026-08-05T00:00:04.000Z',
+        message: { model: 'claude-opus-5', usage: {
+          cache_creation_input_tokens: 300,
+          cache_creation: { ephemeral_1h_input_tokens: 200, ephemeral_5m_input_tokens: 100 },
+        } } }),
+    ], 'UTC');
+    expect(tokens(parsed.events)).toHaveLength(1);
+    expect(tokenOf(parsed, 'r1').usage.cacheCreation).toBe(300);
+    expect(tokenOf(parsed, 'r1').usage.cacheCreation1h).toBe(200);
+    expect(tokenOf(parsed, 'r1').usage.cacheCreation5m).toBe(100);
+  });
+});
+
+describe('request speed', () => {
+  const speedOf = (usage: object) =>
+    tokenOf(parseTranscript(MAIN, [
+      line({ type: 'assistant', requestId: 'r1', timestamp: '2026-08-05T00:00:02.000Z',
+        message: { model: 'claude-opus-5', usage } }),
+    ], 'UTC'), 'r1').speed;
+
+  it('defaults to standard when the field is absent', () => {
+    expect(speedOf({ output_tokens: 300 })).toBe('standard');
+  });
+
+  it('reads an explicit standard', () => {
+    expect(speedOf({ output_tokens: 300, speed: 'standard' })).toBe('standard');
+  });
+
+  it('reads fast', () => {
+    expect(speedOf({ output_tokens: 300, speed: 'fast' })).toBe('fast');
+  });
+
+  it('normalizes an unexpected value to standard', () => {
+    expect(speedOf({ output_tokens: 300, speed: 'turbo' })).toBe('standard');
+  });
+
+  it('is populated on every token event of a real transcript', () => {
+    expect(tokens(parseMain().events).every((e) => e.speed === 'standard')).toBe(true);
+    expect(tokens(parseSide().events).every((e) => e.speed === 'standard')).toBe(true);
   });
 });
 
