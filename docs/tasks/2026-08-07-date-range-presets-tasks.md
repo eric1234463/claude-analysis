@@ -388,7 +388,7 @@ Deviations: the agent added a module-private `PRESET_DAYS` map keyed `last7: DEF
 
 ### Task 2: Add the Range select to the filter card and prove it widens real filtering
 
-**Status:** ⬜ Not Started
+**Status:** ✅ Completed
 **Wave:** 2
 **Phase:** Phase 2 — Range control in the filter card · Phase 3 — Prove it through the real filtering layer
 **Provides:** nothing new to other tasks. It is the real binding for C-1, C-2 and C-3.
@@ -561,7 +561,23 @@ git commit -m "Let the filter card jump to the last 7, 30 or 90 days"
 - Session-memory candidates: this task is the real binding for C-1, C-2 and C-3 — until it lands, nothing outside `dateRange.test.ts` exercises them. If the Final Gate finds a preset bug, the fix belongs in Task 1's module, not here.
 - Repo-memory candidates: "the filter card's presets are derived from `from`/`to`, never stored" — durable, and being written into `CLAUDE.md` by this task, so it needs no separate memory entry once that lands.
 
-**Progress notes:** _(filled in by executing-task)_
+**Progress notes:** ✅ Completed. Commit `4922c68`. Success criteria: **MET** (all eleven). Files: `web/src/App.tsx`, `web/src/App.test.tsx`, `CLAUDE.md` — nothing outside the list.
+
+Verified by controller: `npm test --prefix web -- run src/App.test.tsx` → `Test Files 1 passed (1)`, `Tests 30 passed (30)`.
+
+Mutations re-proven mechanically by the controller (own script, anchor count asserted `1` for each, file restored byte-identical and re-verified `30 passed` afterwards): **M1 KILLED** (2 failed), **M2 KILLED** (1), **M3 KILLED** (1), **M4 KILLED** (1), **M5 KILLED** (1), **M6 KILLED** (5). Every count matches the agent's report.
+
+Contracts: **C-1, C-2, C-3, C-4 consumed as declared.** `App.tsx` imports the real `./api/dateRange` (`defaultDateRange`, `matchPreset`, `presetRange`, `RANGE_PRESETS`, `RANGE_PRESET_LABELS`, `type SelectableRangePreset`); the diff contains no duplicated preset list, label string, or day-key arithmetic, and every expected day key in the spec is a literal. `AppDeps` and `App`'s props are unchanged. No amendment requested.
+
+**Design decision held under review:** `git diff` contains no `setPreset` and no `useState<RangePreset>` — there is no stored preset. `range` remains the single source of truth and `const rangePreset = matchPreset(range, now)` is derived per render. The empty state's own `setRange` call site therefore needed no change, which is exactly the desync the plan rejected the stored variant to avoid.
+
+**Finding 3 — M1's anchor and M5's anchor could not both be unique as written.** The brief asked for `value={matchPreset(range, now)}` inlined in the JSX *and* a separate `rangePreset === 'custom'` conditional, which forces two occurrences of the call. The agent computed it once into `const rangePreset = matchPreset(range, now);` and used `value={rangePreset}`, keeping both anchors at count 1. The contract's stated behaviour is unaffected (`value` *is* `matchPreset(range, now)`) and the mutation's semantics are unchanged. Accepted; this was a defect in the task doc's mutation spec, not in the code.
+
+**Finding 4 — M6's blast radius was understated.** The brief claimed "every fake-based assertion in this file survives it"; in fact M6 also breaks two pre-existing tests (*sends the current date range on every date change*, *recovers from the empty state by clearing the range to all time*) and two new fake-based ones, for 5 failures total. The named integration test does fail as predicted, so the mutation is rejected either way — but the doc's claim about which tier catches it was wrong. Controller reproduced 5 failures independently.
+
+**Finding 5 — M5's second assertion is unreachable.** *reads custom once a date is edited by hand* asserts `select.value` before `toContain('custom')`, so under M5 the run aborts at the first failure and only one of the two predicted assertion failures is observable. The mutation is still killed.
+
+Deviations: the agent trimmed the pre-existing comment above the `range` initialiser from "Opens on the last 7 days; the initialiser runs once so the window does not slide out from under the user mid-session." to "Opens on the last 7 days.", because the new `now` comment one line above states the mid-session freeze. Reviewed and kept — the fact is now stated once, at the state it actually belongs to. The `range` initialiser still calls `defaultDateRange(now)` rather than `presetRange(DEFAULT_RANGE_PRESET, now)`; equivalent, since C-4 now delegates to exactly that, and it keeps the diff to one argument.
 
 —
 
@@ -577,11 +593,11 @@ git commit -m "Let the filter card jump to the last 7, 30 or 90 days"
 
 ### Wave 2 Summary
 
-- **Completed:** —
-- **Commits:** —
-- **Amendments issued:** —
-- **Issues:** —
-- **Carry-forward notes:** —
+- **Completed:** Task 2 (1 of 1).
+- **Commits:** `4922c68` — Let the filter card jump to the last 7, 30 or 90 days.
+- **Amendments issued:** none. All four consumed contracts were usable exactly as declared; Wave 2 met reality without a single stand-in turning out to be more forgiving than the real thing, which is the failure mode this wave exists to catch.
+- **Issues:** three findings, all defects in the task doc's own mutation spec rather than in the code — M1/M5 anchor uniqueness could not both hold as written, M6 breaks five tests rather than one, and M5's second assertion is unreachable behind its first. All recorded in Task 2's progress notes. No contract or success criterion was affected.
+- **Carry-forward notes:** the `TZ` pin from Wave 1's Finding 2 is still outstanding and is the one remaining Final Gate fix. It touches `web/vite.config.mts`, which no task owns.
 
 ## Final Gate
 
