@@ -450,9 +450,25 @@ construct a `TokenTotals`.
 
 ---
 
+### F-2 — Task 4 had a resolve-time dependency on Task 2 (raised by the controller, 2026-08-07)
+
+C-6 specifies that `aggregate`'s third parameter **defaults to the real `rateFor` imported from `./rates`** — a module Task 2
+creates. Both were placed in Wave 1. But an import is resolved at module load, so Task 4's own test file could not even load
+until `server/src/stats/rates.ts` existed on disk: the two tasks were not independent, and dispatching them together would
+have had four agents racing a missing import with no way to tell that failure from their own.
+
+This is a defect in the breakdown, not in either task's brief or in any contract. **Resolution:** Task 2 was dispatched and
+committed alone first (it is a leaf module with zero imports, so it is fast and cannot be blocked by anything), then Tasks 3–6
+were dispatched together as a wave of four with `rates.ts` already on disk. Contracts unchanged.
+
+The general lesson for the next breakdown: a `Consumes` entry whose stand-in is *"use the real default"* is not a stand-in at
+all — it is an import, and an import is a wave boundary. The Wave Overview's stand-in column should have caught it.
+
+---
+
 ## Wave 1
 
-### ⬜ Task 2 — Date-effective rate table
+### ✅ Task 2 — Date-effective rate table
 
 **Phase:** 1 · **Wave:** 1
 **Provides:** C-5 · **Consumes:** none
@@ -558,8 +574,16 @@ git add -- server/src/stats/rates.ts server/src/stats/rates.test.ts
 git commit -m "Add a date-effective per-model rate table in nano-USD per token"
 ```
 
-**Progress notes:** —
-**Commit hash:** —
+**Progress notes:** ✅ Completed. Success criteria: MET (all 5). Files: server/src/stats/rates.ts, server/src/stats/rates.test.ts.
+Verified by controller: `npm test --prefix server -- run src/stats/rates.test.ts` → 1 file / 11 tests PASS. **All 5 named mutations
+re-proven mechanically** via `prove-mutations.sh` (baseline passes; M1→1 failure, M2→2, M3→3, M4→2, M5→5; tree restored, baseline
+passes again) — failure counts match the agent's report exactly. C-5 CONFORMS: `ModelRates` field names, `RequestSpeed`,
+`rateFor` signature, `undefined`-not-fallback for both unknown model and unsupported speed, no `Date` construction anywhere
+(`grep` clean), source-and-date comment present. Derived cache rates computed from `input` in one helper and asserted by
+iterating the table, so a base-rate edit cannot leave them stale; integrality asserted per field per row.
+Additive export beyond the contract: `RATE_TABLE` / `RateRow`, needed for the iterating assertions the brief mandated —
+purely additive, C-5 unchanged, consumers may ignore it. Accepted.
+**Commit hash:** `b43beeb`
 
 ---
 
