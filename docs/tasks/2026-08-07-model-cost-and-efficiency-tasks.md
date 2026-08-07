@@ -1488,4 +1488,67 @@ _Durable conventions only, and only after verification. Ephemeral run notes belo
 
 ## Final Summary
 
-—
+**8 tasks, 8 complete, 0 blocked, 0 deferred.** One task (Task 8) was added mid-run; no task was skipped.
+
+| Task | Commit | Task | Commit |
+|---|---|---|---|
+| 1 contracts + fixture | `38bfeb4` | 5 filterStats merging | `f5a0216` |
+| 2 rate table | `b43beeb` | 6 Cost page + nav | `53bea22` |
+| 3 parser + cache `:v3` | `d618c4c` | 8 typecheck repair | `0a36474` |
+| 4 aggregator pricing | `b35879a` | 7 real binding | `2561dd0` |
+
+Final Gate fixes: `1640e69` (plan + CLAUDE.md), `8193a7b` (rate values), `c0938a2` (unpriced basis), `19e2efa` (doc
+comments), `e314c44` (Cost page). Doc-only: `3594d4a`, `c07f442`, `2292dad`, `44164f6`, `1a34e52`, `4cd9e20`, `1342fc8`,
+`8838b5b`, `f74ca15`.
+
+**Amendments issued: none.** No contract was wrong. All five findings were defects in the plan or this task doc.
+
+**Test movement:** server 98 → 147, web 131 → 167. Typecheck and build clean. **57 mutations proven dead**, every one
+re-verified by the controller; 10 needed hand application because they were structural, multi-line, or cross-file.
+
+### Findings — all five were mine, none was an agent error
+
+- **F-1** `TokenTotals extends TokenUsage`, so the plan's "TokenTotals is not extended" decision was wrong about the repo.
+  Caught by the Task 1 agent *before* Wave 1 dispatched, so the consequence was broadcast into the Task 4 and Task 5 briefs
+  with an extra test case each rather than surfacing as an unexplained `toStrictEqual` failure at the Final Gate.
+- **F-2** Task 4 had a resolve-time dependency on Task 2 (`aggregate`'s default imports `./rates`), so they were never
+  independent. Caught by the controller before dispatch; Task 2 landed alone first. *Lesson: a `Consumes` entry whose
+  stand-in is "use the real default" is not a stand-in, it is a wave boundary.*
+- **F-3** The shared fixture's new fields left `filterStats.test.ts` red at Wave 0 — a third intentionally-red class the
+  Execution Model never named — and exposed three files no task owned. Task 8 was created to own them.
+- **F-4** Task 4's M1 trace was wrong: the stand-in returns `undefined` for `<synthetic>`, so hoisting out of the guard
+  makes it *unpriced*, not priced. The mutation still bites, and the test is stronger than the trace assumed.
+- **F-5** Two of Task 7's five mutations were mis-specified — one could never fail (`stats.module.test.ts` stubs the
+  pipeline and never calls `aggregate`), one was a no-op on a single combined run.
+
+**Three of five mutation traces I wrote were wrong.** Each was caught by the agent asked to prove it, and in every case the
+agent reported the discrepancy rather than quietly weakening a test. That is the single clearest signal in this run: a
+mutation that cannot fail is a claim of coverage that does not exist, and only the act of proving it finds that out.
+
+### Notable deviations from plan
+
+1. **Unit: nano-USD, not micro-USD.** At micro granularity an Opus cache read ($0.50/MTok) is 0.5 µUSD per token and forces
+   a rounding step; at nano every rate is an exact integer per token. Plan corrected.
+2. **`TokenTotals` does carry the split** (F-1), by inheritance. `total` deliberately does not.
+3. **Task 8 added mid-run** to own three type-exposed files nobody had.
+4. **Wave 1 dispatched as 1 + 4** rather than 5 (F-2).
+5. **Cost page denominator** rates against priced tokens only, from Reviewer 1's I-2.
+
+### Carry-forward for a follow-up
+
+- **M-4 (worth taking):** `contracts.ts` should own `RequestSpeed`; `rates.ts` currently declares it while `contracts.ts`
+  spells the union inline for `UsageEvent.speed`.
+- The audit identity `unpricedTokens === tokens.total` only closes for an **all-unpriced** cell — there is no
+  `pricedTokens` counter, so a mixed cell cannot be reconciled from the aggregate alone.
+- `rates.test.ts`'s table-wide `output > input` assertion kills the transposition class only while every published model
+  prices output above input. A parity-priced model would need a value case.
+- Cosmetic, recorded: unreachable `?? ZERO_TOKENS` fallback (M-1), three sort styles (M-5), two web-side split fields with
+  no reader (M-6).
+
+### Repo-memory candidates
+
+- **Verified, promoted to CLAUDE.md:** money is integer nano-USD with date-effective rates; cost is model-attributed with
+  `<synthetic>` excluded by construction; unpriced tokens counted never estimated; `cacheCreation` authoritative for
+  display and the split for pricing, coinciding on observed data but not constrained to; the cache key carries a schema tag.
+- **Verified, not repo memory** (tooling, not architecture): turbo's cache is shared across git worktrees, so a root
+  `npm test` can replay another worktree's logs. Use the per-package form when a result must be trusted.
