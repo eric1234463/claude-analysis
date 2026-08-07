@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import fixture from './api/__fixtures__/aggregate-stats.json';
 import type { AggregateStats, UsageCounts } from './api/types';
 import type { StatsFilter } from './api/filterStats';
@@ -43,6 +43,39 @@ describe('App navigation', () => {
     render(<App stats={stats} deps={deps} />);
     for (const name of ['Overview', 'Cost', 'Skills', 'Tools', 'Efficiency']) {
       expect(screen.getByRole('button', { name })).toBeTruthy();
+    }
+  });
+
+  it('lists the pages in tab order, with Cost beside Overview', () => {
+    const { deps } = fakes();
+    render(<App stats={stats} deps={deps} />);
+    const nav = screen.getByRole('navigation', { name: 'Dashboard sections' });
+    expect(within(nav).getAllByRole('button').map((tab) => tab.textContent)).toStrictEqual([
+      'Overview',
+      'Cost',
+      'Skills',
+      'Tools',
+      'Efficiency',
+    ]);
+  });
+
+  it('subtitles each page with its own description', () => {
+    const { deps } = fakes();
+    render(<App stats={stats} deps={deps} />);
+    // Scoped to the paragraph under the h1: page bodies repeat some of this copy, so an
+    // unscoped text match would pass even with two subtitles transposed.
+    const subtitle = () =>
+      screen.getByRole('heading', { level: 1 }).nextElementSibling?.textContent ?? '';
+    const pages: Array<[string, RegExp]> = [
+      ['Overview', /token volume/i],
+      ['Cost', /api list price/i],
+      ['Skills', /built-ins are excluded/i],
+      ['Tools', /tool call volume/i],
+      ['Efficiency', /cache reuse/i],
+    ];
+    for (const [name, copy] of pages) {
+      fireEvent.click(screen.getByRole('button', { name }));
+      expect(subtitle()).toMatch(copy);
     }
   });
 

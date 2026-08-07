@@ -65,6 +65,18 @@ function scaledRate(nanoUsd: number, tokens: number, per: number): number {
   return Math.round((nanoUsd / tokens) * per);
 }
 
+/**
+ * Tokens drawn from the same universe as the cost figures — the sum over `totals.models`.
+ *
+ * `totals.tokens.total` is wider: it also carries `<synthetic>` turns and any model with no
+ * rate row, neither of which contributes a cent to `totals.cost`. Dividing cost by it would
+ * quietly dilute every rate on the page the moment such a model appeared, and nothing in the
+ * UI would say so.
+ */
+export function pricedTokenTotal(models: Readonly<Record<string, TokenTotals>>): number {
+  return Object.values(models).reduce((sum, tokens) => sum + tokens.total, 0);
+}
+
 const ZERO_TOKENS: TokenTotals = {
   input: 0,
   output: 0,
@@ -138,6 +150,7 @@ export function Cost({ stats, series, granularity }: PageProps) {
   const trend = costTrendData(series);
   const split = modelCostSplitData(rows);
   const totalSaving = netCacheSaving(totals.cost);
+  const pricedTokens = pricedTokenTotal(totals.models);
 
   return (
     <section data-testid="page-cost" className="space-y-6">
@@ -151,9 +164,9 @@ export function Cost({ stats, series, granularity }: PageProps) {
         />
         <StatCard
           label="Cost / 1M tokens"
-          value={formatUsd(scaledRate(totals.cost.total, totals.tokens.total, 1_000_000))}
+          value={formatUsd(scaledRate(totals.cost.total, pricedTokens, 1_000_000))}
           valueTestId="metric-cost-per-mtokens"
-          hint={`Over ${formatNumber(totals.tokens.total)} tokens`}
+          hint={`Over ${formatNumber(pricedTokens)} priced tokens`}
           icon={Coins}
         />
         <StatCard
@@ -338,7 +351,7 @@ export function Cost({ stats, series, granularity }: PageProps) {
                     data-testid={`model-token-share-${row.model}`}
                     className="tabular text-right"
                   >
-                    {formatPercent(row.tokens.total, totals.tokens.total)}
+                    {formatPercent(row.tokens.total, pricedTokens)}
                   </TableCell>
                   <TableCell
                     data-testid={`model-cost-per-mtokens-${row.model}`}
