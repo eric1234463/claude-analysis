@@ -18,6 +18,14 @@ describe('toDayKey', () => {
     expect(toDayKey(new Date(2026, 6, 10, 0, 30))).toBe('2026-07-10');
   });
 
+  it('formats a local calendar date across month and year boundaries, not a UTC one', () => {
+    // The case above only pins the day: 00:30 local on 07-10 is 07-09 in UTC, same year
+    // and month, so a UTC year or month would still read correctly there. On 01-01 the
+    // UTC instant is 2025-12-31, which puts all three components in disagreement at once.
+    expect(toDayKey(new Date(2026, 0, 1, 0, 30))).toBe('2026-01-01');
+    expect(toDayKey(new Date(2026, 6, 1, 0, 30))).toBe('2026-07-01');
+  });
+
   it('zero-pads single-digit months and days', () => {
     expect(toDayKey(new Date(2026, 0, 5))).toBe('2026-01-05');
   });
@@ -95,6 +103,13 @@ describe('presetRange', () => {
     expect(presetRange('last90', now)).toStrictEqual({ from: '2026-04-12', to: '2026-07-10' });
   });
 
+  it('uses the local year and month at a year boundary, not the UTC ones', () => {
+    // 00:30 local on 01-01 is 2025-12-31 in UTC, so a UTC year or month shows up in `to`
+    // here where the same-month case above cannot see it.
+    const now = new Date(2026, 0, 1, 0, 30);
+    expect(presetRange('last7', now)).toStrictEqual({ from: '2025-12-26', to: '2026-01-01' });
+  });
+
   it('clears both bounds for all time, whatever the clock says', () => {
     expect(presetRange('all', new Date(2026, 6, 10))).toStrictEqual({ from: '', to: '' });
     expect(presetRange('all', new Date(2020, 0, 1))).toStrictEqual({ from: '', to: '' });
@@ -104,6 +119,16 @@ describe('presetRange', () => {
     const now = new Date(2026, 6, 10);
     presetRange('last90', now);
     expect(toDayKey(now)).toBe('2026-07-10');
+  });
+
+  it('leaves the exact instant it is given untouched, clock time included', () => {
+    // The day-key check above cannot see a clock-time mutation such as `setHours(0,0,0,0)`,
+    // which leaves every returned key correct. App holds one frozen `Date` and hands that
+    // same instance to every call, so a normalised time would propagate to all of them.
+    const now = new Date(2026, 6, 10, 13, 45, 30, 500);
+    const before = now.getTime();
+    presetRange('last90', now);
+    expect(now.getTime()).toBe(before);
   });
 
   it('agrees with defaultDateRange on the seven-day window', () => {
@@ -143,5 +168,12 @@ describe('matchPreset', () => {
     const now = new Date(2026, 6, 10);
     matchPreset({ from: '2026-07-04', to: '2026-07-10' }, now);
     expect(toDayKey(now)).toBe('2026-07-10');
+  });
+
+  it('leaves the exact instant it is given untouched, clock time included', () => {
+    const now = new Date(2026, 6, 10, 13, 45, 30, 500);
+    const before = now.getTime();
+    matchPreset({ from: '2026-07-04', to: '2026-07-10' }, now);
+    expect(now.getTime()).toBe(before);
   });
 });
