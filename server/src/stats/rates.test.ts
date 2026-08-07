@@ -2,6 +2,16 @@ import { describe, it, expect } from 'vitest';
 import { RATE_TABLE, rateFor } from './rates';
 
 describe('rateFor', () => {
+  it('resolves Fable 5 at standard speed', () => {
+    expect(rateFor('claude-fable-5', '2026-08-07', 'standard')).toStrictEqual({
+      input: 10000,
+      output: 50000,
+      cacheRead: 1000,
+      cacheWrite5m: 12500,
+      cacheWrite1h: 20000,
+    });
+  });
+
   it('resolves Opus 5 at standard speed', () => {
     expect(rateFor('claude-opus-5', '2026-08-07', 'standard')).toStrictEqual({
       input: 5000,
@@ -50,6 +60,16 @@ describe('rateFor', () => {
     expect(rateFor('claude-sonnet-5', '2026-08-07', 'fast')).toBeUndefined();
   });
 
+  it('resolves Haiku 4.5 at standard speed', () => {
+    expect(rateFor('claude-haiku-4-5', '2026-08-07', 'standard')).toStrictEqual({
+      input: 1000,
+      output: 5000,
+      cacheRead: 100,
+      cacheWrite5m: 1250,
+      cacheWrite1h: 2000,
+    });
+  });
+
   it('returns undefined for an unknown model', () => {
     expect(rateFor('claude-opus-9', '2026-08-07', 'standard')).toBeUndefined();
   });
@@ -71,6 +91,14 @@ describe('RATE_TABLE', () => {
       expect(cacheRead * 10).toBe(input);
       expect(cacheWrite5m * 4).toBe(input * 5);
       expect(cacheWrite1h).toBe(input * 2);
+    }
+  });
+
+  // The derived-rates and integrality cases both survive an input/output transposition, so
+  // every row also has to clear this: no published model prices output at or below input.
+  it('prices output above input on every row', () => {
+    for (const row of RATE_TABLE) {
+      expect(row.rates.output, `${row.model}/${row.speed}`).toBeGreaterThan(row.rates.input);
     }
   });
 
