@@ -1,5 +1,6 @@
 import type {
   AggregateStats,
+  CostBreakdown,
   ParsedFile,
   SkillKey,
   ThroughputCounts,
@@ -8,13 +9,25 @@ import type {
   UsageCounts,
   UsageEvent,
 } from './contracts';
+import { rateFor as tableRateFor, type ModelRates, type RequestSpeed } from './rates';
 
 const SYNTHETIC = '<synthetic>';
 
 export const MIN_THROUGHPUT_OUTPUT_TOKENS = 100;
 
+/** Resolves the rate in force for a model on a day at a speed, or `undefined` when there is none. */
+type RateLookup = (model: string, dayKey: string, speed: RequestSpeed) => ModelRates | undefined;
+
 function emptyTokenTotals(): TokenTotals {
-  return { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, total: 0 };
+  return {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheCreation: 0,
+    cacheCreation1h: 0,
+    cacheCreation5m: 0,
+    total: 0,
+  };
 }
 
 function addUsage(totals: TokenTotals, usage: TokenUsage): void {
@@ -22,7 +35,48 @@ function addUsage(totals: TokenTotals, usage: TokenUsage): void {
   totals.output += usage.output;
   totals.cacheRead += usage.cacheRead;
   totals.cacheCreation += usage.cacheCreation;
+  totals.cacheCreation1h += usage.cacheCreation1h;
+  totals.cacheCreation5m += usage.cacheCreation5m;
+  // `cacheCreation` is the authoritative cache-creation total; adding the split as well
+  // would double-count it.
   totals.total += usage.input + usage.output + usage.cacheRead + usage.cacheCreation;
+}
+
+function emptyCost(): CostBreakdown {
+  return {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite5m: 0,
+    cacheWrite1h: 0,
+    total: 0,
+    uncachedCacheCost: 0,
+    unpricedTokens: 0,
+  };
+}
+
+/** Adds one token event's money to `cost`. An event whose model has no rate row for its day
+ *  contributes nothing but its token count, so `total` stays auditable. */
+function addCost(cost: CostBreakdown, usage: TokenUsage, rate: ModelRates | undefined): void {
+  if (rate === undefined) {
+    cost.unpricedTokens += usage.input + usage.output + usage.cacheRead + usage.cacheCreation;
+    return;
+  }
+  const input = usage.input * rate.input;
+  const output = usage.output * rate.output;
+  const cacheRead = usage.cacheRead * rate.cacheRead;
+  const cacheWrite5m = usage.cacheCreation5m * rate.cacheWrite5m;
+  const cacheWrite1h = usage.cacheCreation1h * rate.cacheWrite1h;
+  cost.input += input;
+  cost.output += output;
+  cost.cacheRead += cacheRead;
+  cost.cacheWrite5m += cacheWrite5m;
+  cost.cacheWrite1h += cacheWrite1h;
+  cost.total += input + output + cacheRead + cacheWrite5m + cacheWrite1h;
+  // The counterfactual must use the same basis that was priced -- the split, not the flat
+  // total -- or the derived net saving would not reconcile.
+  cost.uncachedCacheCost
+    += (usage.cacheCreation1h + usage.cacheCreation5m + usage.cacheRead) * rate.input;
 }
 
 function emptyThroughputCounts(): ThroughputCounts {
@@ -59,10 +113,12 @@ function emptyCounts(): UsageCounts {
     modelThroughput: {},
     skillThroughput: {},
     agents: {},
+    cost: emptyCost(),
+    modelCost: {},
   };
 }
 
-function addToCounts(counts: UsageCounts, event: UsageEvent): void {
+function addToCounts(counts: UsageCounts, event: UsageEvent, rateFor: RateLookup): void {
   switch (event.kind) {
     case 'token': {
       addUsage(counts.tokens, event.usage);
@@ -74,6 +130,12 @@ function addToCounts(counts: UsageCounts, event: UsageEvent): void {
       if (event.model !== SYNTHETIC) {
         const modelTotals = (counts.models[event.model] ??= emptyTokenTotals());
         addUsage(modelTotals, event.usage);
+        // Pricing lives inside this guard, so <synthetic> is excluded from cost by
+        // construction rather than by a second exclusion rule.
+        const modelCost = (counts.modelCost[event.model] ??= emptyCost());
+        const rate = rateFor(event.model, event.day, event.speed);
+        addCost(counts.cost, event.usage, rate);
+        addCost(modelCost, event.usage, rate);
       }
       if (event.skill !== undefined) {
         const skillTotals = (counts.skillTokens[event.skill] ??= emptyTokenTotals());
@@ -157,10 +219,15 @@ function sortCounts(counts: UsageCounts): UsageCounts {
     modelThroughput: sortRecord(counts.modelThroughput),
     skillThroughput: sortRecord(counts.skillThroughput),
     agents: sortRecord(counts.agents),
+    modelCost: sortRecord(counts.modelCost),
   };
 }
 
-export function aggregate(files: readonly ParsedFile[], generatedAt: string): AggregateStats {
+export function aggregate(
+  files: readonly ParsedFile[],
+  generatedAt: string,
+  rateFor: RateLookup = tableRateFor,
+): AggregateStats {
   const days: Record<string, Record<string, UsageCounts>> = {};
   const totals = emptyCounts();
   let malformedLines = 0;
@@ -173,8 +240,8 @@ export function aggregate(files: readonly ParsedFile[], generatedAt: string): Ag
     for (const event of file.events) {
       const dayCells = (days[event.day] ??= {});
       const cell = (dayCells[event.project] ??= emptyCounts());
-      addToCounts(cell, event);
-      addToCounts(totals, event);
+      addToCounts(cell, event, rateFor);
+      addToCounts(totals, event, rateFor);
     }
   }
 
