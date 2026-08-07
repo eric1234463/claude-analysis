@@ -174,7 +174,7 @@ describe('Efficiency metrics', () => {
       bucket: '2026-07-06',
       counts: {
         ...bucket,
-        tokens: { ...bucket.tokens, input: 60, cacheRead: 940, cacheCreation: 0 },
+        tokens: { ...bucket.tokens, input: 60, cacheRead: 940, cacheCreation: 0, cacheCreation1h: 0, cacheCreation5m: 0 },
       },
     }];
     expect(cacheHitTrendData(merged)[0].cacheHitRatio).toBe(94);
@@ -266,9 +266,9 @@ describe('Efficiency with nothing selected', () => {
     skills: [],
     agents: [],
     totals: {
-      tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, total: 0 },
-      mainTokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, total: 0 },
-      sidechainTokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, total: 0 },
+      tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, cacheCreation1h: 0, cacheCreation5m: 0, total: 0 },
+      mainTokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, cacheCreation1h: 0, cacheCreation5m: 0, total: 0 },
+      sidechainTokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, cacheCreation1h: 0, cacheCreation5m: 0, total: 0 },
       sessionsStarted: 0,
       toolCalls: 0,
       toolErrors: 0,
@@ -284,6 +284,11 @@ describe('Efficiency with nothing selected', () => {
       modelThroughput: {},
       skillThroughput: {},
       agents: {},
+      cost: {
+        input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0,
+        total: 0, uncachedCacheCost: 0, unpricedTokens: 0,
+      },
+      modelCost: {},
     },
   };
 

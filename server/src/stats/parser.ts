@@ -29,6 +29,11 @@ interface RawLine {
       output_tokens?: number;
       cache_read_input_tokens?: number;
       cache_creation_input_tokens?: number;
+      cache_creation?: {
+        ephemeral_1h_input_tokens?: number;
+        ephemeral_5m_input_tokens?: number;
+      };
+      speed?: string;
     };
   };
 }
@@ -53,6 +58,7 @@ interface TokenEvent {
   model: string;
   dedupeKey: string;
   usage: TokenUsage;
+  speed: 'standard' | 'fast';
   isSidechain: boolean;
   agentId?: string;
   agentType?: string;
@@ -167,11 +173,23 @@ export function parseTranscript(
       if (message?.usage) {
         const key = parsed.requestId ?? parsed.uuid;
         if (typeof key === 'string' && typeof message.model === 'string') {
+          const cacheCreation = message.usage.cache_creation_input_tokens ?? 0;
+          const cacheCreation1h = message.usage.cache_creation?.ephemeral_1h_input_tokens ?? 0;
+          const declared5m = message.usage.cache_creation?.ephemeral_5m_input_tokens ?? 0;
           const usage: TokenUsage = {
             input: message.usage.input_tokens ?? 0,
             output: message.usage.output_tokens ?? 0,
             cacheRead: message.usage.cache_read_input_tokens ?? 0,
-            cacheCreation: message.usage.cache_creation_input_tokens ?? 0,
+            cacheCreation,
+            cacheCreation1h,
+            // The flat field stays authoritative for `cacheCreation`: whatever it does not
+            // explain is 5m, the cheaper TTL, so an ABSENT or PARTIAL nested object prices
+            // low rather than at zero. That bias holds in those two cases only — when the
+            // declared parts overshoot the flat total the max() floors at 0 and they are
+            // priced exactly as declared, above the flat token count. Not clamped to the
+            // flat field on purpose: a populated nested object on a line whose flat field
+            // is missing would then price at zero, which is the worse error.
+            cacheCreation5m: declared5m + Math.max(0, cacheCreation - cacheCreation1h - declared5m),
           };
           const model = message.model === '<synthetic>' ? message.model : normalizeModel(message.model);
           const event: TokenEvent = {
@@ -181,6 +199,7 @@ export function parseTranscript(
             model,
             dedupeKey: key,
             usage,
+            speed: message.usage.speed === 'fast' ? 'fast' : 'standard',
             isSidechain: file.kind === 'sidechain',
             ...(file.kind === 'sidechain' ? { agentId: file.agentId, agentType: file.agentType } : {}),
             ...(typeof parsed.attributionSkill === 'string' && parsed.attributionSkill.length > 0

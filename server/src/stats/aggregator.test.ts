@@ -3,13 +3,25 @@ import {
   AGGREGATE_STATS_KEYS,
   type AggregateStats,
   type ParsedFile,
+  type TokenUsage,
   type UsageEvent,
 } from './contracts';
 import { aggregate } from './aggregator';
 
 const AT = '2026-08-01T00:00:00.000Z';
-const usage = (input: number, output: number, cacheRead = 0, cacheCreation = 0) =>
-  ({ input, output, cacheRead, cacheCreation });
+const usage = (input: number, output: number, cacheRead = 0, cacheCreation = 0): TokenUsage =>
+  ({ input, output, cacheRead, cacheCreation, cacheCreation1h: 0, cacheCreation5m: 0 });
+
+/** Spelt out by field, so a cache-creation split can never be transposed positionally. */
+const splitUsage = (overrides: Partial<TokenUsage> = {}): TokenUsage => ({
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheCreation: 0,
+  cacheCreation1h: 0,
+  cacheCreation5m: 0,
+  ...overrides,
+});
 
 const file = (events: UsageEvent[], malformedLines = 0, ignoredLines = 0): ParsedFile =>
   ({ events, malformedLines, ignoredLines });
@@ -25,18 +37,21 @@ const tokenEvent = (
   usage: usage(1, 500),
   isSidechain: false,
   durationMs: 5000,
+  speed: 'standard',
   ...overrides,
 });
 
-const throughputCell = (stats: AggregateStats) => stats.days['2026-08-05']['-p'];
+/** The day/project cell every `tokenEvent()` lands in. */
+const defaultCell = (stats: AggregateStats) => stats.days['2026-08-05']['-p'];
+const throughputCell = defaultCell;
 
 const mainFile = file(
   [
     { kind: 'session-start', day: '2026-07-09', project: '-a', sessionId: 's1' },
     { kind: 'token', day: '2026-07-09', project: '-a', model: 'claude-opus-4-8',
-      dedupeKey: 'r1', usage: usage(10, 20, 100, 5), isSidechain: false },
+      dedupeKey: 'r1', usage: usage(10, 20, 100, 5), isSidechain: false, speed: 'standard' },
     { kind: 'token', day: '2026-07-09', project: '-a', model: '<synthetic>',
-      dedupeKey: 'u1', usage: usage(5, 5), isSidechain: false },
+      dedupeKey: 'u1', usage: usage(5, 5), isSidechain: false, speed: 'standard' },
     { kind: 'tool-call', day: '2026-07-09', project: '-a', tool: 'Bash', isSidechain: false },
     { kind: 'tool-error', day: '2026-07-09', project: '-a', tool: 'Bash', isSidechain: false },
     { kind: 'tool-call', day: '2026-07-09', project: '-a', tool: 'Read', isSidechain: false },
@@ -52,7 +67,7 @@ const mainFile = file(
 const sideFile = file([
   { kind: 'agent-run', day: '2026-07-09', project: '-a', agentType: 'general-purpose' },
   { kind: 'token', day: '2026-07-09', project: '-a', model: 'claude-opus-4-8', dedupeKey: 'r2',
-    usage: usage(2, 153, 21047, 6069), isSidechain: true,
+    usage: usage(2, 153, 21047, 6069), isSidechain: true, speed: 'standard',
     agentId: 'a1', agentType: 'general-purpose' },
 ]);
 
@@ -60,7 +75,7 @@ const otherFile = file(
   [
     { kind: 'session-start', day: '2026-07-10', project: '-b', sessionId: 's2' },
     { kind: 'token', day: '2026-07-10', project: '-b', model: 'claude-sonnet-5', dedupeKey: 'r3',
-      usage: usage(7, 11), isSidechain: false },
+      usage: usage(7, 11), isSidechain: false, speed: 'standard' },
   ],
   0,
   1,
@@ -92,18 +107,26 @@ describe('the day x project fact table', () => {
 
   it('splits main and sidechain tokens and keeps their sum in tokens', () => {
     const cell = all().days['2026-07-09']['-a'];
-    expect(cell.mainTokens)
-      .toStrictEqual({ input: 15, output: 25, cacheRead: 100, cacheCreation: 5, total: 145 });
-    expect(cell.sidechainTokens)
-      .toStrictEqual({ input: 2, output: 153, cacheRead: 21047, cacheCreation: 6069, total: 27271 });
-    expect(cell.tokens)
-      .toStrictEqual({ input: 17, output: 178, cacheRead: 21147, cacheCreation: 6074, total: 27416 });
+    expect(cell.mainTokens).toStrictEqual({
+      input: 15, output: 25, cacheRead: 100,
+      cacheCreation: 5, cacheCreation1h: 0, cacheCreation5m: 0, total: 145,
+    });
+    expect(cell.sidechainTokens).toStrictEqual({
+      input: 2, output: 153, cacheRead: 21047,
+      cacheCreation: 6069, cacheCreation1h: 0, cacheCreation5m: 0, total: 27271,
+    });
+    expect(cell.tokens).toStrictEqual({
+      input: 17, output: 178, cacheRead: 21147,
+      cacheCreation: 6074, cacheCreation1h: 0, cacheCreation5m: 0, total: 27416,
+    });
   });
 
   it('rolls totals up as the sum of every cell', () => {
     const s = all();
-    expect(s.totals.tokens)
-      .toStrictEqual({ input: 24, output: 189, cacheRead: 21147, cacheCreation: 6074, total: 27434 });
+    expect(s.totals.tokens).toStrictEqual({
+      input: 24, output: 189, cacheRead: 21147,
+      cacheCreation: 6074, cacheCreation1h: 0, cacheCreation5m: 0, total: 27434,
+    });
     expect(s.totals.sessionsStarted).toBe(2);
     expect(s.totals.toolCalls).toBe(2);
     expect(s.totals.toolErrors).toBe(1);
@@ -145,7 +168,10 @@ describe('dimensions', () => {
     expect(s.totals.agents).toStrictEqual({
       'general-purpose': {
         runs: 1,
-        tokens: { input: 2, output: 153, cacheRead: 21047, cacheCreation: 6069, total: 27271 },
+        tokens: {
+          input: 2, output: 153, cacheRead: 21047,
+          cacheCreation: 6069, cacheCreation1h: 0, cacheCreation5m: 0, total: 27271,
+        },
       },
     });
   });
@@ -157,20 +183,28 @@ describe('dimensions', () => {
   it('rolls token events up per attributed skill, merging main and sidechain under one bare name', () => {
     const s = aggregate([file([
       { kind: 'token', day: '2026-07-09', project: '-a', model: 'claude-opus-4-8',
-        dedupeKey: 'r1', usage: usage(1, 4), isSidechain: false, skill: 'brainstorming' },
+        dedupeKey: 'r1', usage: usage(1, 4), isSidechain: false, speed: 'standard',
+        skill: 'brainstorming' },
       { kind: 'token', day: '2026-07-09', project: '-a', model: 'claude-opus-4-8',
-        dedupeKey: 'r2', usage: usage(2, 153, 21047, 6069), isSidechain: true,
+        dedupeKey: 'r2', usage: usage(2, 153, 21047, 6069), isSidechain: true, speed: 'standard',
         agentType: 'general-purpose', skill: 'brainstorming' },
       { kind: 'token', day: '2026-07-09', project: '-a', model: 'claude-opus-4-8',
-        dedupeKey: 'r3', usage: usage(9, 9), isSidechain: false, skill: 'writing-plans' },
+        dedupeKey: 'r3', usage: usage(9, 9), isSidechain: false, speed: 'standard',
+        skill: 'writing-plans' },
       // Unattributed: counted in tokens, absent from skillTokens.
       { kind: 'token', day: '2026-07-09', project: '-a', model: 'claude-opus-4-8',
-        dedupeKey: 'r4', usage: usage(100, 100), isSidechain: false },
+        dedupeKey: 'r4', usage: usage(100, 100), isSidechain: false, speed: 'standard' },
     ])], AT);
 
     expect(s.totals.skillTokens).toStrictEqual({
-      brainstorming: { input: 3, output: 157, cacheRead: 21047, cacheCreation: 6069, total: 27276 },
-      'writing-plans': { input: 9, output: 9, cacheRead: 0, cacheCreation: 0, total: 18 },
+      brainstorming: {
+        input: 3, output: 157, cacheRead: 21047,
+        cacheCreation: 6069, cacheCreation1h: 0, cacheCreation5m: 0, total: 27276,
+      },
+      'writing-plans': {
+        input: 9, output: 9, cacheRead: 0,
+        cacheCreation: 0, cacheCreation1h: 0, cacheCreation5m: 0, total: 18,
+      },
     });
     // The unattributed turn is still in tokens, so skillTokens never has to sum to it.
     expect(s.totals.tokens.input).toBe(112);
@@ -294,6 +328,285 @@ describe('throughput aggregation', () => {
   });
 });
 
+describe('cost pricing', () => {
+  /** Stand-in for C-5's rate table: two rows, `undefined` for anything else, never throws.
+   *  The tests must not depend on the real table's contents. */
+  const fakeRateFor = (model: string, _day: string, speed: 'standard' | 'fast') => {
+    if (model === 'test-model') {
+      return { input: 1000, output: 2000, cacheRead: 100, cacheWrite5m: 1250, cacheWrite1h: 2000 };
+    }
+    if (model === 'test-model-fast' && speed === 'fast') {
+      return { input: 2000, output: 4000, cacheRead: 200, cacheWrite5m: 2500, cacheWrite1h: 4000 };
+    }
+    return undefined;
+  };
+
+  /** Same rates, tripled from 2026-09-01 — proves `event.day` reaches the lookup. */
+  const dayVaryingRateFor = (model: string, day: string, _speed: 'standard' | 'fast') => {
+    if (model !== 'test-model') return undefined;
+    const scale = day >= '2026-09-01' ? 3 : 1;
+    return {
+      input: 1000 * scale,
+      output: 2000 * scale,
+      cacheRead: 100 * scale,
+      cacheWrite5m: 1250 * scale,
+      cacheWrite1h: 2000 * scale,
+    };
+  };
+
+  const ZERO_COST = {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite5m: 0,
+    cacheWrite1h: 0,
+    total: 0,
+    uncachedCacheCost: 0,
+    unpricedTokens: 0,
+  };
+
+  /** 10 in, 20 out, 30 cache read, 90 cache creation split 40 (1h) / 50 (5m). */
+  const SAMPLE = splitUsage({
+    input: 10,
+    output: 20,
+    cacheRead: 30,
+    cacheCreation: 90,
+    cacheCreation1h: 40,
+    cacheCreation5m: 50,
+  });
+
+  const SAMPLE_COST = {
+    input: 10_000, // 10 x 1000
+    output: 40_000, // 20 x 2000
+    cacheRead: 3_000, // 30 x 100
+    cacheWrite5m: 62_500, // 50 x 1250
+    cacheWrite1h: 80_000, // 40 x 2000
+    total: 195_500,
+    uncachedCacheCost: 120_000, // (40 + 50 + 30) x 1000
+    unpricedTokens: 0,
+  };
+
+  const priced = (overrides: Partial<Extract<UsageEvent, { kind: 'token' }>> = {}) =>
+    tokenEvent({ model: 'test-model', usage: SAMPLE, ...overrides });
+
+  it('prices a single event into the cell and its model entry', () => {
+    const stats = aggregate([file([priced()])], AT, fakeRateFor);
+
+    expect(defaultCell(stats).cost).toStrictEqual(SAMPLE_COST);
+    expect(defaultCell(stats).modelCost).toStrictEqual({ 'test-model': SAMPLE_COST });
+  });
+
+  it('keeps cost.total equal to the sum of its five components', () => {
+    const { cost } = defaultCell(aggregate([file([priced()])], AT, fakeRateFor));
+
+    expect(cost.total).toBe(
+      cost.input + cost.output + cost.cacheRead + cost.cacheWrite5m + cost.cacheWrite1h,
+    );
+  });
+
+  it('keeps cost equal to the sum over modelCost, field by field, for a two-model cell', () => {
+    const stats = aggregate([file([
+      priced({ dedupeKey: 'a' }),
+      priced({
+        dedupeKey: 'b',
+        model: 'test-model-fast',
+        speed: 'fast',
+        usage: splitUsage({
+          input: 3, output: 4, cacheRead: 5,
+          cacheCreation: 13, cacheCreation1h: 6, cacheCreation5m: 7,
+        }),
+      }),
+    ])], AT, fakeRateFor);
+    const { cost, modelCost } = defaultCell(stats);
+
+    expect(Object.keys(modelCost)).toStrictEqual(['test-model', 'test-model-fast']);
+    for (const field of Object.keys(ZERO_COST) as (keyof typeof ZERO_COST)[]) {
+      expect(cost[field]).toBe(modelCost['test-model'][field] + modelCost['test-model-fast'][field]);
+    }
+    expect(cost.total).toBe(modelCost['test-model'].total + modelCost['test-model-fast'].total);
+  });
+
+  it('routes event.speed to the lookup, so the fast row costs double the standard one', () => {
+    const standard = defaultCell(
+      aggregate([file([priced({ speed: 'standard' })])], AT, fakeRateFor),
+    ).cost;
+    const fast = defaultCell(
+      aggregate(
+        [file([priced({ model: 'test-model-fast', speed: 'fast' })])],
+        AT,
+        fakeRateFor,
+      ),
+    ).cost;
+
+    expect(standard).toStrictEqual(SAMPLE_COST);
+    for (const field of Object.keys(ZERO_COST) as (keyof typeof ZERO_COST)[]) {
+      expect(fast[field]).toBe(standard[field] * 2);
+    }
+  });
+
+  it('routes event.day to the lookup, so identical tokens on two days cost differently', () => {
+    const stats = aggregate([file([
+      priced({ dedupeKey: 'a', day: '2026-08-05' }),
+      priced({ dedupeKey: 'b', day: '2026-09-05' }),
+    ])], AT, dayVaryingRateFor);
+    const before = stats.days['2026-08-05']['-p'].cost;
+    const after = stats.days['2026-09-05']['-p'].cost;
+
+    expect(before).toStrictEqual(SAMPLE_COST);
+    expect(after.total).not.toBe(before.total);
+    for (const field of Object.keys(ZERO_COST) as (keyof typeof ZERO_COST)[]) {
+      expect(after[field]).toBe(before[field] * 3);
+    }
+  });
+
+  it('counts an unpriced model as unpricedTokens and still gives it a modelCost entry', () => {
+    const stats = aggregate([file([priced({ model: 'unknown-model' })])], AT, fakeRateFor);
+    // 10 + 20 + 30 + 90. SAMPLE's split sums to its flat field, so this case cannot tell the
+    // two bases apart -- the case below is the one that pins the choice.
+    const unpriced = { ...ZERO_COST, unpricedTokens: 150 };
+
+    expect(defaultCell(stats).cost).toStrictEqual(unpriced);
+    expect(defaultCell(stats).modelCost).toStrictEqual({ 'unknown-model': unpriced });
+    expect(stats.totals.cost).toStrictEqual(unpriced);
+  });
+
+  it('counts unpriced tokens on the flat cacheCreation, keeping cost auditable against tokens', () => {
+    // The two bases answer different questions and are deliberately allowed to diverge (the
+    // parser keeps the flat field authoritative and does not clamp the parts to it). Pricing
+    // reads the SPLIT, because that is what the per-TTL rates apply to. unpricedTokens reads
+    // the FLAT field, because it exists so a reader can reconcile cost against the token
+    // totals shown on the dashboard -- and those are built from the flat field too.
+    const stats = aggregate([file([priced({
+      model: 'unknown-model',
+      // Parts overshoot the flat total, the shape parser.test.ts's "clamps the remainder at
+      // zero and keeps the flat field authoritative" permits: 8 + 9 = 17, but flat is 10.
+      usage: splitUsage({
+        input: 10, output: 20, cacheRead: 30,
+        cacheCreation: 10, cacheCreation1h: 8, cacheCreation5m: 9,
+      }),
+    })])], AT, fakeRateFor);
+    const cell = defaultCell(stats);
+
+    expect(cell.cost.unpricedTokens).toBe(70); // 10 + 20 + 30 + 10, NOT 77
+    // The invariant that basis exists to serve, stated directly: for a cell whose every token
+    // went unpriced, the unpriced count IS the cell's token total.
+    expect(cell.cost.unpricedTokens).toBe(cell.tokens.total);
+    expect(cell.modelCost['unknown-model'].unpricedTokens).toBe(70);
+    expect(stats.totals.cost.unpricedTokens).toBe(70);
+    // Still no money, and the divergent split did not leak into a money field.
+    expect(cell.cost).toStrictEqual({ ...ZERO_COST, unpricedTokens: 70 });
+  });
+
+  it('excludes <synthetic> from cost and from modelCost even with non-zero tokens', () => {
+    const stats = aggregate([file([priced({
+      model: '<synthetic>',
+      usage: splitUsage({
+        input: 999, output: 7, cacheRead: 5,
+        cacheCreation: 11, cacheCreation1h: 4, cacheCreation5m: 7,
+      }),
+    })])], AT, fakeRateFor);
+
+    expect(defaultCell(stats).cost).toStrictEqual(ZERO_COST);
+    expect(defaultCell(stats).modelCost).toStrictEqual({});
+    expect(stats.totals.cost).toStrictEqual(ZERO_COST);
+    expect(stats.totals.modelCost).toStrictEqual({});
+    // The tokens themselves are still counted -- only the money is excluded.
+    expect(defaultCell(stats).tokens.input).toBe(999);
+  });
+
+  it('keeps sibling cells separate and sums them into totals.cost', () => {
+    const stats = aggregate([file([
+      priced({ dedupeKey: 'a', project: '-a', usage: splitUsage({ input: 10 }) }),
+      priced({ dedupeKey: 'b', project: '-b', usage: splitUsage({ input: 1 }) }),
+    ])], AT, fakeRateFor);
+
+    expect(stats.days['2026-08-05']['-a'].cost)
+      .toStrictEqual({ ...ZERO_COST, input: 10_000, total: 10_000 });
+    expect(stats.days['2026-08-05']['-b'].cost)
+      .toStrictEqual({ ...ZERO_COST, input: 1_000, total: 1_000 });
+    expect(stats.totals.cost).toStrictEqual({ ...ZERO_COST, input: 11_000, total: 11_000 });
+  });
+
+  it('leaves every cache figure at zero for an event with no cache activity', () => {
+    const stats = aggregate(
+      [file([priced({ usage: splitUsage({ input: 10, output: 20 }) })])],
+      AT,
+      fakeRateFor,
+    );
+
+    expect(defaultCell(stats).cost).toStrictEqual({
+      ...ZERO_COST,
+      input: 10_000,
+      output: 40_000,
+      total: 50_000,
+    });
+  });
+
+  it('bases uncachedCacheCost on the split, not on the flat cacheCreation field', () => {
+    // The splits sum ABOVE the flat field, so the two bases disagree: 8 + 9 = 17, not 10.
+    const stats = aggregate([file([priced({
+      usage: splitUsage({ cacheCreation: 10, cacheCreation1h: 8, cacheCreation5m: 9 }),
+    })])], AT, fakeRateFor);
+
+    expect(defaultCell(stats).cost.uncachedCacheCost).toBe(17_000);
+  });
+
+  it('sorts modelCost keys like every other record, matching models', () => {
+    const stats = aggregate([file([
+      priced({ dedupeKey: 'a', model: 'zeta-model' }),
+      priced({ dedupeKey: 'b', model: 'test-model' }),
+      priced({ dedupeKey: 'c', model: 'alpha-model' }),
+    ])], AT, fakeRateFor);
+
+    expect(Object.keys(defaultCell(stats).modelCost))
+      .toStrictEqual(['alpha-model', 'test-model', 'zeta-model']);
+    expect(Object.keys(defaultCell(stats).modelCost))
+      .toStrictEqual(Object.keys(defaultCell(stats).models));
+    expect(Object.keys(stats.totals.modelCost))
+      .toStrictEqual(['alpha-model', 'test-model', 'zeta-model']);
+  });
+
+  it('prices via the real rate table when called with two arguments', () => {
+    const stats = aggregate([file([tokenEvent({ model: 'claude-opus-5', speed: 'standard' })])], AT);
+    const { cost, modelCost } = defaultCell(stats);
+
+    expect(cost.unpricedTokens).toBe(0);
+    expect(cost.input).toBeGreaterThan(0);
+    expect(cost.output).toBeGreaterThan(0);
+    expect(cost.total).toBe(
+      cost.input + cost.output + cost.cacheRead + cost.cacheWrite5m + cost.cacheWrite1h,
+    );
+    expect(modelCost['claude-opus-5']).toStrictEqual(cost);
+  });
+
+  it('carries the cache-creation split into TokenTotals without changing total', () => {
+    const stats = aggregate([file([
+      priced({ dedupeKey: 'a' }),
+      priced({
+        dedupeKey: 'b',
+        usage: splitUsage({
+          input: 1, output: 2, cacheRead: 3,
+          cacheCreation: 9, cacheCreation1h: 4, cacheCreation5m: 5,
+        }),
+      }),
+    ])], AT, fakeRateFor);
+    // total stays input + output + cacheRead + cacheCreation -- the split must not be added again.
+    const expected = {
+      input: 11,
+      output: 22,
+      cacheRead: 33,
+      cacheCreation: 99,
+      cacheCreation1h: 44,
+      cacheCreation5m: 55,
+      total: 165,
+    };
+
+    expect(defaultCell(stats).tokens).toStrictEqual(expected);
+    expect(defaultCell(stats).mainTokens).toStrictEqual(expected);
+    expect(defaultCell(stats).models['test-model']).toStrictEqual(expected);
+  });
+});
+
 describe('determinism', () => {
   it('emits keys in ascending order regardless of event order', () => {
     const shuffled = aggregate([otherFile, sideFile, mainFile], AT);
@@ -309,15 +622,17 @@ describe('determinism', () => {
     expect(s.scannedFiles).toBe(0);
     expect(s.days).toStrictEqual({});
     expect(s.projects).toStrictEqual([]);
-    expect(s.totals.tokens)
-      .toStrictEqual({ input: 0, output: 0, cacheRead: 0, cacheCreation: 0, total: 0 });
+    expect(s.totals.tokens).toStrictEqual({
+      input: 0, output: 0, cacheRead: 0,
+      cacheCreation: 0, cacheCreation1h: 0, cacheCreation5m: 0, total: 0,
+    });
   });
 
   it('sorts agents, skills, and every nested map, even with an adversarially-ordered fixture', () => {
     // Second project '-z' in the same day as '-a' below, inserted (via file order) before it.
     const fileZ = file([
       { kind: 'token', day: '2026-07-09', project: '-z', model: 'zzz-model', dedupeKey: 'dz1',
-        usage: usage(1, 1), isSidechain: false },
+        usage: usage(1, 1), isSidechain: false, speed: 'standard' },
       { kind: 'tool-call', day: '2026-07-09', project: '-z', tool: 'Zulu', isSidechain: false },
     ]);
 
@@ -325,7 +640,7 @@ describe('determinism', () => {
     // 'brainstorming' skill, both of which the third file below will precede alphabetically.
     const fileA = file([
       { kind: 'token', day: '2026-07-09', project: '-a', model: 'aaa-model', dedupeKey: 'da1',
-        usage: usage(1, 1), isSidechain: false },
+        usage: usage(1, 1), isSidechain: false, speed: 'standard' },
       { kind: 'tool-call', day: '2026-07-09', project: '-a', tool: 'Bash', isSidechain: false },
       { kind: 'skill', day: '2026-07-09', project: '-a', name: 'brainstorming',
         source: 'skill-tool', isSidechain: false },

@@ -88,6 +88,31 @@ Changing any of these means changing a regression test on purpose, not incidenta
   stripping the context-window suffix (`claude-opus-4-8[1m]` → `claude-opus-4-8`).
 - The top-level keys of `AggregateStats` are pinned by `AGGREGATE_STATS_KEYS` in *both* packages;
   adding or removing one is a contract change and fails tests in both until updated.
+- **Money is integer nano-USD** (1e-9 USD), never a float. Every published rate is a whole number of
+  nano-USD per token (a USD-per-MTok rate `R` maps to `R * 1000`), so pricing is integer arithmetic with
+  no rounding step: `cost` cells merge by plain addition and a weekly total equals the sum of its days
+  exactly. Rates live only in `server/src/stats/rates.ts` and are **date-effective** — resolved against
+  the cell's day key, so a price change never retroactively reprices history.
+- **Cost is model-attributed only, and `<synthetic>` is excluded by construction.** Pricing happens
+  inside the existing `event.model !== SYNTHETIC` branch in the aggregator, which is why
+  `cost.total` always equals the sum over `modelCost` and why there is no second exclusion rule to keep
+  in sync. Cost is computed in the aggregator because that is the only place the day key still exists;
+  the frontend adds cells and must never multiply a rate.
+- **Tokens from a model with no rate row are counted, never estimated.** They contribute `0` to every
+  money field and their count to `cost.unpricedTokens`, so `cost.total` stays auditable. A
+  nearest-model or newest-rate fallback would produce a plausible wrong number, which is worse than a
+  visibly incomplete one. `unpricedTokens` is summed from the **flat** `cacheCreation`, matching the
+  token totals a reader sees on the dashboard.
+- **`cacheCreation` is authoritative for token display; the 1h/5m split is authoritative for pricing.**
+  `TokenTotals` carries both because it `extends TokenUsage`, and `total` deliberately sums only
+  `input + output + cacheRead + cacheCreation` — folding the split in would double-count. The two
+  coincide on all observed data (47,006 of 47,006 measured lines) but are **not constrained to**: when a
+  line's nested parts overshoot its flat field the parser keeps both as given, so do not add a
+  regression test asserting `cacheCreation1h + cacheCreation5m === cacheCreation`. That is a property of
+  today's data, not a guarantee the parser makes.
+- **The per-file cache key carries a schema tag** (`:v3`). Any change to `ParsedFile`'s shape must bump
+  it, or already-cached transcripts keep serving the old shape forever under an unchanged mtime/size —
+  silently, with no error. The TTL split would have priced at zero for all history.
 
 ### Cross-package contract
 

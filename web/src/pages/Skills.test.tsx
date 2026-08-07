@@ -125,8 +125,11 @@ describe('Skills page', () => {
       skills,
       skillTokens,
     });
-    const tok = (output: number, cacheCreation: number) =>
-      ({ input: 0, output, cacheRead: 900, cacheCreation, total: output + cacheCreation + 900 });
+    const tok = (output: number, cacheCreation: number) => ({
+      input: 0, output, cacheRead: 900, cacheCreation,
+      cacheCreation1h: cacheCreation, cacheCreation5m: 0,
+      total: output + cacheCreation + 900,
+    });
 
     // `rare` is used once but is by far the most expensive; `common` is the opposite.
     const cell = counts(

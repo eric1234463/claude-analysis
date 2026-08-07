@@ -1,4 +1,4 @@
-import type { AggregateStats, SkillKey, ThroughputCounts, TokenTotals, UsageCounts } from './types';
+import type { AggregateStats, CostBreakdown, SkillKey, ThroughputCounts, TokenTotals, UsageCounts } from './types';
 import { bucketKey, type Granularity } from './granularity';
 
 /**
@@ -17,15 +17,18 @@ export interface StatsFilter {
 }
 
 function zeroTokenTotals(): TokenTotals {
-  return { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, total: 0 };
+  return { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, cacheCreation1h: 0, cacheCreation5m: 0, total: 0 };
 }
 
+/** `total` sums only the four token fields — the 1h/5m split rides alongside `cacheCreation`. */
 function addTokenTotals(a: TokenTotals, b: TokenTotals): TokenTotals {
   return {
     input: a.input + b.input,
     output: a.output + b.output,
     cacheRead: a.cacheRead + b.cacheRead,
     cacheCreation: a.cacheCreation + b.cacheCreation,
+    cacheCreation1h: a.cacheCreation1h + b.cacheCreation1h,
+    cacheCreation5m: a.cacheCreation5m + b.cacheCreation5m,
     total: a.total + b.total,
   };
 }
@@ -40,6 +43,33 @@ function addThroughputCounts(a: ThroughputCounts, b: ThroughputCounts): Throughp
     durationMs: a.durationMs + b.durationMs,
     requests: a.requests + b.requests,
     excludedRequests: a.excludedRequests + b.excludedRequests,
+  };
+}
+
+function zeroCostBreakdown(): CostBreakdown {
+  return {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite5m: 0,
+    cacheWrite1h: 0,
+    total: 0,
+    uncachedCacheCost: 0,
+    unpricedTokens: 0,
+  };
+}
+
+/** Every field is a plain sum of nano-USD (or of token counts, for `unpricedTokens`); no rate maths here. */
+function addCostBreakdown(a: CostBreakdown, b: CostBreakdown): CostBreakdown {
+  return {
+    input: a.input + b.input,
+    output: a.output + b.output,
+    cacheRead: a.cacheRead + b.cacheRead,
+    cacheWrite5m: a.cacheWrite5m + b.cacheWrite5m,
+    cacheWrite1h: a.cacheWrite1h + b.cacheWrite1h,
+    total: a.total + b.total,
+    uncachedCacheCost: a.uncachedCacheCost + b.uncachedCacheCost,
+    unpricedTokens: a.unpricedTokens + b.unpricedTokens,
   };
 }
 
@@ -64,6 +94,8 @@ function mergeUsageCounts(cells: readonly UsageCounts[]): UsageCounts {
     sidechainThroughput: zeroThroughputCounts(),
     modelThroughput: {},
     skillThroughput: {},
+    cost: zeroCostBreakdown(),
+    modelCost: {},
   };
 
   for (const cell of cells) {
@@ -78,9 +110,13 @@ function mergeUsageCounts(cells: readonly UsageCounts[]): UsageCounts {
     result.throughput = addThroughputCounts(result.throughput, cell.throughput);
     result.mainThroughput = addThroughputCounts(result.mainThroughput, cell.mainThroughput);
     result.sidechainThroughput = addThroughputCounts(result.sidechainThroughput, cell.sidechainThroughput);
+    result.cost = addCostBreakdown(result.cost, cell.cost);
 
     for (const [model, totals] of Object.entries(cell.models)) {
       result.models[model] = addTokenTotals(result.models[model] ?? zeroTokenTotals(), totals);
+    }
+    for (const [model, breakdown] of Object.entries(cell.modelCost)) {
+      result.modelCost[model] = addCostBreakdown(result.modelCost[model] ?? zeroCostBreakdown(), breakdown);
     }
     for (const [tool, counts] of Object.entries(cell.tools)) {
       const prev = result.tools[tool] ?? { calls: 0, errors: 0 };
