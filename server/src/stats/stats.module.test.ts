@@ -75,6 +75,11 @@ describe('GET /api/stats', () => {
     expect(Object.keys(res.body).sort()).toStrictEqual([...AGGREGATE_STATS_KEYS]);
     expect(res.body.totals.tokens.total).toBe(27438);
     expect(res.body.totals.sessionsStarted).toBe(2);
+    // Cost is nested two levels deeper than anything else asserted here; no in-process test
+    // covers whether it survives Nest's JSON serialization.
+    expect(res.body.totals.cost.total).toBe(68326250);
+    expect(Object.keys(res.body.totals.modelCost ?? {}))
+      .toStrictEqual(['claude-opus-4-8', 'claude-sonnet-5']);
   });
 
   it('POST /api/stats/refresh returns the same shape', async () => {
