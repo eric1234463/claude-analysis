@@ -2,7 +2,7 @@
 type: task
 title: "Date Range Presets — Task Breakdown"
 description: "Two serial tasks: a pure preset vocabulary in dateRange.ts, then a Range select in the filter card whose active preset is derived from the existing from/to state."
-status: not_started
+status: in_progress
 owner: "eric1234463@gmail.com"
 ticket: "DASH-0000"
 created: "2026-08-07"
@@ -15,8 +15,10 @@ wiki: false
 
 **Plan:** [docs/plans/2026-08-07-date-range-presets.md](../plans/2026-08-07-date-range-presets.md)
 **Branch:** feature/DASH-0000-date-range-presets — `executing-task` will not dispatch on any other branch. Work happens in the git worktree at `.claude/worktrees/date-range-presets`, which has its own `npm install` (already run; `node_modules/` present).
-**Started:** —
+**Started:** 2026-08-07
 **Completed:** —
+
+**Branch point:** `beec4c8` (`git merge-base main HEAD`). This repo has no CI, so the branch point is not CI-gated and a baseline was measured: root `npm test` → server `8 files / 98 tests passed`, web `11 files / 131 tests passed`; root `npm run typecheck` → both packages clean. Anything red later in the run is therefore this run's.
 
 ## Source Plan Summary
 
@@ -161,7 +163,7 @@ No path appears twice, and no path appears in two waves. The trickiest call was 
 
 ### Task 1: Add the preset vocabulary to the date-range module
 
-**Status:** ⬜ Not Started
+**Status:** ✅ Completed
 **Wave:** 1
 **Phase:** Phase 1 — Preset vocabulary
 **Provides:** C-1 (preset vocabulary), C-2 (`presetRange`), C-3 (`matchPreset`), C-4 (`defaultDateRange`, behaviour preserved)
@@ -362,7 +364,23 @@ git commit -m "Add date-range presets and the reverse lookup that names one"
 - Session-memory candidates: Task 2 imports every symbol in C-1/C-2/C-3 directly; if any name changes here, Task 2's brief needs the broadcast before it dispatches.
 - Repo-memory candidates: none — `toDayKey`-not-`toISOString` is already documented in `CLAUDE.md` and in the module's own comments.
 
-**Progress notes:** _(filled in by executing-task)_
+**Progress notes:** ✅ Completed. Commit `c0b30fd`. Success criteria: **MET** (all eleven). Files: `web/src/api/dateRange.ts`, `web/src/api/dateRange.test.ts` — nothing outside the list.
+
+Verified by controller: `npm test --prefix web -- run src/api/dateRange.test.ts` → `Test Files 1 passed (1)`, `Tests 20 passed (20)`.
+
+Mutations re-proven mechanically by the controller (own script, anchor count asserted `1` for each, file restored byte-identical and re-verified green afterwards): **M1 KILLED** (7 failed / 13 passed), **M2 KILLED** (6 failed / 14 passed), **M3 SURVIVED** (20 passed), **M4 KILLED** (2 failed / 18 passed), **M5 KILLED** (1 failed / 19 passed). Agent's report matched this exactly.
+
+Contracts: **C-1, C-2, C-3 CONFORM** to the registry verbatim — types, `RANGE_PRESETS` order, label map, both signatures. **C-4 preserved**: `defaultDateRange`'s body is now `return presetRange(DEFAULT_RANGE_PRESET, now)` (explicitly permitted), return value unchanged, `DEFAULT_RANGE_DAYS` still exported. The existing `toDayKey` and `defaultDateRange` describe blocks are byte-unchanged apart from the import line, which the brief authorised. No amendment requested. Diff confirms the module stays pure: no new import, no argument-less `new Date()`, no `Date.now()`.
+
+**Finding 1 — M3 is undetectable by construction, and that is correct.** `presetRange('all', now)` returns `{ from: '', to: '' }` and `'all'` is in `RANGE_PRESETS`, so deleting `matchPreset`'s empty-bounds early return still yields `'all'` from the scan. The branch is genuinely redundant. **Decision: keep it** — C-3 specifies it, it documents that empty bounds mean All time regardless of the clock, and it costs one comparison. Recorded rather than hidden, per the brief.
+
+**Finding 2 — the M2 invariant has no coverage on a UTC machine, and this is a real hole.** The web package pins no `TZ` (`web/vite.config.mts:13` sets only `environment`, `globals`, `setupFiles`); only the server pins `TZ=UTC` (`server/vitest.config.mts`). Controller verified independently: with `TZ=UTC`, the M2 mutation (`from.toISOString().slice(0, 10)` in place of `toDayKey(from)`) **survives all 20 tests**, whereas on this machine's ambient `Asia/Hong_Kong` it kills 6. So the plan's success criterion "correct for a non-UTC local zone" is only actually asserted when the runner happens to sit in a non-UTC zone. Note the kill on this machine also does **not** come from the test the brief predicted (*uses the local calendar date, not the UTC one* passes under M2 at UTC+8, because 23:30 local on the 3rd is still the 3rd in UTC) — it comes from the midnight-anchored cases. Scheduled as a Final Gate fix: pin a non-UTC `TZ` for the web test run so the discrimination is machine-independent. Pre-existing in scope — the older `toDayKey` test at `dateRange.test.ts:5-11` has the same dependence — but this run leans on it much harder.
+
+**Doc corrections applied at execution time** (the task doc was carrying two false premises; neither reached a second agent):
+- The recorded `grep -cF '- (days - 1)' …` fails outright — the leading dash parses as a flag. `grep -cF -- '- (days - 1)' …` is the working form.
+- The brief predicted the pre-implementation failure would be a single file-level error; it is per-case (`14 failed | 6 passed`), because missing named imports resolve to `undefined` under esbuild rather than throwing at import time.
+
+Deviations: the agent added a module-private `PRESET_DAYS` map keyed `last7: DEFAULT_RANGE_DAYS` (not a literal `7`) so `DEFAULT_RANGE_DAYS` stays load-bearing after `defaultDateRange` delegated its body away. Reviewed and kept — without it that export becomes dead and free to drift from the `last7` window. `presetRange`'s parameter list is wrapped across lines for the file's width; no behavioural difference and the M1/M2 anchors are unaffected.
 
 —
 
@@ -551,11 +569,11 @@ git commit -m "Let the filter card jump to the last 7, 30 or 90 days"
 
 ### Wave 1 Summary
 
-- **Completed:** —
-- **Commits:** —
-- **Amendments issued:** —
-- **Issues:** —
-- **Carry-forward notes:** —
+- **Completed:** Task 1 (1 of 1).
+- **Commits:** `c0b30fd` — Add date-range presets and the reverse lookup that names one. (`fc5794f` earlier carries the plan and this task doc.)
+- **Amendments issued:** none. No contract needed changing; C-1/C-2/C-3 were implementable verbatim.
+- **Issues:** two findings, both recorded in Task 1's progress notes. M3 is undetectable by construction (redundant branch, kept deliberately). M2's invariant is not asserted on a UTC machine — the web test run pins no `TZ`, and the controller confirmed the mutation survives all 20 tests under `TZ=UTC`. Scheduled as a Final Gate fix. Two false premises in the task doc itself (a `grep` anchor needing `--`, and a mispredicted pre-implementation failure mode) were corrected in place; neither reached another agent, since Wave 1 held one task.
+- **Carry-forward notes:** Task 2 imports C-1/C-2/C-3 from the committed real module — no stand-in, and no local copy of the labels or the arithmetic. `DEFAULT_RANGE_DAYS` is now consumed by `PRESET_DAYS.last7` rather than by `defaultDateRange` directly; leave it exported. The `TZ` pin is unowned by any task and must not be folded into Task 2's diff — it lands as its own Final Gate commit.
 
 ### Wave 2 Summary
 
