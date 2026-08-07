@@ -30,9 +30,17 @@ export interface TokenUsage {
   /** Cache-creation tokens written at the 5-minute TTL (priced at 1.25x base input).
    *  When the nested `usage.cache_creation` object is absent or its parts sum to LESS
    *  than `cache_creation_input_tokens`, the unexplained remainder is attributed here —
-   *  5m is the cheaper of the two, so an unknown split understates rather than
-   *  overstates spend. When the parts sum to MORE, they are used as given and
-   *  `cacheCreation` remains the flat field. */
+   *  5m is the cheaper TTL, so an unknown split prices low rather than at zero. When the
+   *  parts sum to MORE they are used as given, NOT clamped to the flat field.
+   *  So there are two quantities here and they are deliberately not reconciled: the flat
+   *  field is authoritative for `cacheCreation` and for every token display, while
+   *  `cacheCreation1h + cacheCreation5m` is the basis pricing multiplies. They coincide on
+   *  all observed data (47,006 of 47,006 usage-bearing lines across 600 transcripts newer
+   *  than 2026-07-01, measured 2026-08-07) but nothing constrains them to,
+   *  and in the overshoot branch the priced quantity exceeds the displayed token count.
+   *  Clamping the split was considered and rejected: a line with an absent flat field and
+   *  a populated nested object would then price at zero, turning a token-display
+   *  discrepancy into a billing error. */
   cacheCreation5m: number;
 }
 
@@ -93,8 +101,11 @@ export interface CostBreakdown {
   cacheWrite1h: number;
   /** input + output + cacheRead + cacheWrite5m + cacheWrite1h */
   total: number;
-  /** What (cacheCreation + cacheRead) tokens would have cost at this model's full input
-   *  rate — the uncached counterfactual. Net cache saving is DERIVED at render time as
+  /** What (cacheCreation1h + cacheCreation5m + cacheRead) tokens would have cost at this
+   *  model's full input rate — the uncached counterfactual. The basis is the split, not
+   *  the flat `cacheCreation`: it has to match what pricing actually charged, or the
+   *  derived saving would not reconcile in the overshoot branch where the two differ.
+   *  Net cache saving is DERIVED at render time as
    *  `uncachedCacheCost - cacheWrite5m - cacheWrite1h - cacheRead`, never stored. */
   uncachedCacheCost: number;
   /** Tokens whose model had no rate row for their day. They contribute 0 to every

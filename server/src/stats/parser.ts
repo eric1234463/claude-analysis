@@ -182,9 +182,13 @@ export function parseTranscript(
             cacheRead: message.usage.cache_read_input_tokens ?? 0,
             cacheCreation,
             cacheCreation1h,
-            // The flat field stays authoritative: whatever it does not explain is 5m, the
-            // cheaper TTL, so an absent or partial nested object understates rather than
-            // pricing at zero. Never negative when the parts overshoot the total.
+            // The flat field stays authoritative for `cacheCreation`: whatever it does not
+            // explain is 5m, the cheaper TTL, so an ABSENT or PARTIAL nested object prices
+            // low rather than at zero. That bias holds in those two cases only — when the
+            // declared parts overshoot the flat total the max() floors at 0 and they are
+            // priced exactly as declared, above the flat token count. Not clamped to the
+            // flat field on purpose: a populated nested object on a line whose flat field
+            // is missing would then price at zero, which is the worse error.
             cacheCreation5m: declared5m + Math.max(0, cacheCreation - cacheCreation1h - declared5m),
           };
           const model = message.model === '<synthetic>' ? message.model : normalizeModel(message.model);
