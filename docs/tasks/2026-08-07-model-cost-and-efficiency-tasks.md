@@ -504,6 +504,43 @@ expected pending-task ones). See Wave 2.
 
 ---
 
+### F-4 — Task 4's mutation M1 was traced to the wrong assertion (raised by the Task 4 agent, 2026-08-07)
+
+The brief traced M1 (hoisting cost accumulation out of the `event.model !== SYNTHETIC` guard) as *"cost.input becomes
+999 x the rate instead of 0"*. That is wrong: the declared C-5 stand-in returns `undefined` for `<synthetic>`, so a
+synthetic event hoisted out of the guard is **priced as unpriced**, not priced at a rate. Controller applied the mutation
+by hand and confirmed: it fails on `unpricedTokens` (`0` vs `1022`) and on the appearing `modelCost['<synthetic>']` entry,
+not on `cost.input`.
+
+The mutation is still detectable, so nothing was weakened — and the test is in fact *stronger* than the trace assumed,
+because it asserts both an all-zero `cost` and `modelCost` `toStrictEqual({})`. The lesson is that a mutation trace has to
+be walked against **the stand-in that will actually be in play**, not against the production rate table.
+
+### F-5 — two of Task 7's five mutations were mis-specified (raised by the Task 7 agent, 2026-08-07)
+
+**M4 could not fail as written.** The brief said to remove `modelCost` from the aggregate's returned `totals` and expect
+`stats.module.test.ts`'s key assertion to fail. But that file never calls `aggregate`: controller verified its imports are
+only `./contracts`, `./config`, `./stats.service`, `./stats.controller` (no aggregator, no pipeline), and its GET block is
+`makeApp({ run: async () => FIXTURE })` at `stats.module.test.ts:70` against the hand-written JSON read at `:14`. The HTTP
+body is the fixture, so a mutation to `aggregate` is invisible to it.
+
+The *assertion* is still worth having — it proves the cost fields survive Nest's JSON serialization, which is what its
+criterion claims and which no in-process test covers. Only the mutation was wrong. **Substituted:** strip `modelCost` off
+`totals` inside `StatsController.getStats()`, which probes the HTTP path directly.
+
+**Rule promoted from the agent's own reasoning: never mutate `web/src/api/__fixtures__/aggregate-stats.json`.** It was the
+other candidate probe for M4 and it is the wrong one — the file is read by the web page tests and by
+`server/test/stats.integration.test.ts`, it is a `turbo.json` global dependency, and Task 8 was running concurrently in
+the same tree. A mutation window there hands another agent a spurious failure in a file it does not own.
+
+**M5 is a no-op unless the boundary test uses two separate `aggregate` runs.** Swapping the two day strings between
+fixtures carrying identical tokens on the same model produces a byte-identical aggregate, because each line's day key comes
+from its own timestamp — the two lines simply trade places. The brief's wording ("once dated 2026-08-31 and once
+2026-09-01") does imply two separate single-line runs, and that is the structure required; recorded explicitly here so the
+next author does not collapse them into one call and leave the mutation green.
+
+---
+
 ## Wave 1
 
 ### ✅ Task 2 — Date-effective rate table
@@ -1188,8 +1225,25 @@ Run once, after every task is committed.
 
 ## Wave Summaries
 
-**Wave 0:** —
-**Wave 1:** —
+**Wave 0:** 1 task, 1 commit (`38bfeb4`). Contract declarations in both packages, the shared fixture's cost data, and the
+cache-TTL split in the fixture transcripts. Controller re-derived every `modelCost` field from the fixture's own token
+counts x the rate table (0 failures across 17 `TokenTotals` and 3 `CostBreakdown` entries), so the fixture's numbers follow
+from the rates rather than merely being self-consistent. Raised **F-1**.
+
+**Wave 1:** 5 tasks, 5 commits (`b43beeb`, `d618c4c`, `b35879a`, `f5a0216`, `53bea22`). Dispatched as Task 2 alone followed
+by Tasks 3–6 together, because of **F-2**. All 31 named mutations across the five tasks were re-proven mechanically by the
+controller; 5 of them required hand application (structural hoists and multi-line transpositions the TSV format cannot
+express) and every failure count matched the owning agent's report. Findings **F-3** and **F-4** raised and ruled on
+mid-wave; the F-1 consequence was broadcast into the Task 4 and Task 5 briefs *before* dispatch, with an extra test case
+each, rather than being left for the Final Gate.
+
+Conventions settled mid-run, for the Final Gate reviewers: (a) the "every pre-existing assertion passes unmodified"
+criterion was reworded once, for both Task 4 and Task 5, to *"keeps its operator and its expected numbers; expected-value
+literals may gain the fields the contract change added, and nothing else"* — several literals legitimately gained
+`cacheCreation1h`/`cacheCreation5m` and `speed`, and no expected number changed anywhere; (b) `total` on any `TokenTotals`
+keeps its four-term formula and the split must never enter it; (c) the shared fixture JSON is never to be mutated, even
+transiently for a mutation probe (**F-5**).
+
 **Wave 2:** —
 
 ## Carry-forward Notes
