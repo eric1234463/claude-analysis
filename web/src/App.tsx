@@ -54,6 +54,13 @@ const PAGE_SUBTITLES: Record<(typeof PAGES)[number]['name'], string> = {
   Efficiency: 'Cache reuse, error rates and subagent leverage.',
 };
 
+/** Shared by the filter card's two native selects so they cannot drift apart visually. */
+const SELECT_CLASS = cn(
+  'h-11 w-[10.5rem] cursor-pointer appearance-none rounded-md border border-input',
+  'bg-transparent px-3 text-sm text-foreground shadow-xs transition-colors duration-200',
+  'focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none',
+);
+
 export function App(props: AppProps) {
   const deps = props.deps ?? {
     filterStats: realFilterStats,
@@ -178,11 +185,7 @@ export function App(props: AppProps) {
                   id="range"
                   value={rangePreset}
                   onChange={(e) => setRange(presetRange(e.target.value as SelectableRangePreset, now))}
-                  className={cn(
-                    'h-11 w-[10.5rem] cursor-pointer appearance-none rounded-md border border-input',
-                    'bg-transparent px-3 text-sm text-foreground shadow-xs transition-colors duration-200',
-                    'focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none',
-                  )}
+                  className={SELECT_CLASS}
                 >
                   {RANGE_PRESETS.map((option) => (
                     <option key={option} value={option}>
@@ -229,11 +232,7 @@ export function App(props: AppProps) {
                   id="granularity"
                   value={granularity}
                   onChange={(e) => setGranularity(e.target.value as Granularity)}
-                  className={cn(
-                    'h-11 w-[10.5rem] cursor-pointer appearance-none rounded-md border border-input',
-                    'bg-transparent px-3 text-sm text-foreground shadow-xs transition-colors duration-200',
-                    'focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none',
-                  )}
+                  className={SELECT_CLASS}
                 >
                   {GRANULARITIES.map((option) => (
                     <option key={option} value={option}>
@@ -340,7 +339,7 @@ export function App(props: AppProps) {
                   type="button"
                   variant="secondary"
                   className="min-h-9 cursor-pointer"
-                  onClick={() => setRange({ from: '', to: '' })}
+                  onClick={() => setRange(presetRange('all', now))}
                 >
                   Show all time
                 </Button>

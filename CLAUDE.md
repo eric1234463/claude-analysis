@@ -34,8 +34,12 @@ npm test --prefix web -- run src/api/filterStats.test.ts
 Don't invoke `npx turbo run test` directly: it drops the root script's `-- run` pass-through, so it
 addresses a different cache entry and starts vitest in watch mode. There is no lint script.
 
-Server tests run under `TZ=UTC` (`server/vitest.config.mts`) so day-bucketing expectations never
-depend on the machine zone.
+Both packages pin `TZ` through `test.env`, and they deliberately disagree: server tests run under
+`TZ=UTC` (`server/vitest.config.mts`) so day-bucketing expectations never depend on the machine zone,
+while web tests run under `TZ=Asia/Hong_Kong` (`web/vite.config.mts`) — a **non-UTC** zone on purpose,
+because under UTC the local and UTC calendar dates coincide, so `toDayKey` and
+`toISOString().slice(0, 10)` become indistinguishable and every day-key timezone assertion goes
+vacuous. Don't "fix" web to UTC for symmetry.
 
 ## Architecture
 
@@ -106,8 +110,10 @@ Single aggregate endpoint, all filtering client-side. `filterStats`/`usageSeries
 (`web/src/api/filterStats.ts`) narrow by date range and project and re-derive `totals` and the index
 arrays; page components in `web/src/pages/` are pure functions of `{ stats, series, granularity }`
 and hold no fetching logic. The filter card's range presets are **derived** from the `from`/`to` state
-via `matchPreset` (`web/src/api/dateRange.ts`) and never stored, so don't add a `preset` state variable
-back — it would desync from the empty state's own `setRange` call.
+via `matchPreset` (`web/src/api/dateRange.ts`) and never stored, against a `now` frozen once at mount
+and shared by the range initialiser and the derivation, so don't add a `preset` state variable back —
+it would desync from the empty state's own `setRange` call — and don't unwrap the `useState` around
+`now`, which would drift the select to Custom the moment the clock crossed midnight.
 
 Time-bucketed charts group at a granularity the user picks in the filter card — daily (default),
 weekly or monthly. `usageSeries(stats, granularity)` does the grouping once, keying each point by
