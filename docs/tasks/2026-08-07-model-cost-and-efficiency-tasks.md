@@ -2,7 +2,7 @@
 type: tasks
 title: "Per-Model USD Cost and Token Efficiency — Task Breakdown"
 description: "Contract-first single-wave breakdown for pricing transcript tokens at API list rates, split by cache TTL and date-effective per model, and surfacing spend and cache economics on a new Cost page."
-status: not-started
+status: completed
 owner: "eric1234463@gmail.com"
 ticket: "DASH-0000"
 created: "2026-08-07"
@@ -15,6 +15,7 @@ wiki: false
 **Branch:** feature/DASH-0000-model-cost-and-efficiency
 **Worktree:** `.claude/worktrees/feature+DASH-0000-model-cost-and-efficiency` (branched from `origin/main` @ `beec4c8`)
 **Source plan:** `docs/plans/2026-08-07-model-cost-and-efficiency.md`
+**Completed:** 2026-08-07
 
 **Baseline captured before dispatch**
 - Measured: this worktree, clean at `beec4c8`, 2026-08-07
@@ -1353,6 +1354,102 @@ Run once, after every task is committed.
    - *Unnamed-mutation search* — conformance and the named mutations were gated per task; hunt for what nobody named. Start with the five classes on the cost path: an ordering assumption in the model lists, a dropped filter in the day/speed lookup, a swapped rate field, a widened effective-date bound, a hardcoded zero in a `CostBreakdown` field.
 8. **Plan Success Criteria** — tick each item in `docs/plans/2026-08-07-model-cost-and-efficiency.md` with the evidence that satisfies it.
 
+## Final Gate
+
+### 6a — controller checks
+
+| Check | Before fixes | After fixes | Notes |
+|---|---|---|---|
+| Server suite | 10 files / 143 | 10 files / **147** | baseline was 8 / 98 |
+| Web suite | 12 files / 157 | 12 files / **167** | baseline was 11 / 131 |
+| `npm run typecheck` | 2/2, 0 cached | 2/2, 0 cached | first point in the run it is expected to pass |
+| `npm run build` | 2/2, 0 cached | 2/2, 0 cached | |
+| `git status --porcelain` | clean | clean | |
+
+Suites were run **per package**, not through the root script: turbo's cache is shared across worktrees and the root
+`npm test` was observed replaying a `FULL TURBO` cache hit whose logs came from `.claude/worktrees/date-range-presets`
+(Precondition 6). Nothing was left to CI — this repo has none.
+
+`server/test/stats.integration.test.ts` (13/13) is the run's strongest single proof: it drives the real pipeline through an
+HTTP request and **deep-equals** the shared fixture, so the cost figures hand-derived in Wave 0 are exactly what the code
+produces.
+
+**Real-data smoke** — 635 transcript files, 28 days, via `POST /api/stats/refresh` against the live transcripts root:
+
+```
+model                    USD       in      out   cWrite    cRead    netSave  read%
+claude-fable-5        716.92     3.00   114.18   232.74   367.01    3192.13  51.2%
+claude-opus-4-8       808.16     1.00   136.07   238.45   432.63    3780.85  53.5%
+claude-opus-5        1708.89     0.35   296.67   413.60   998.27    8813.42  58.4%
+claude-sonnet-5        92.98     0.14    18.28    26.02    48.55     431.71  52.2%
+TOTAL                3326.95
+```
+
+`unpricedTokens` is `0`, confirming Assumption 6 against live data. Across all 66 day/project cells: `cost.total` equals its
+five components, equals the sum over `modelCost`, and every `TokenTotals` split sums to `cacheCreation` — **0 invariant
+failures**. Cache reads are 51–58% of spend on every model, and caching returns ≈ $16.2k against $3.3k spent.
+
+**Amendment propagation:** none required — no contract was ever amended. Five findings were raised (F-1 … F-5) and all five
+were defects in the plan or task doc rather than in a contract, so the registry stands as written.
+
+**Cross-consumer stand-in divergence:** C-5 is the only contract with more than one consumer that used a fake. Task 4's
+stand-in and Task 7's real binding agree, and Task 7's rename probe proves the real one is genuinely bound.
+
+### 6b — reviewers
+
+**Reviewer 1, cross-task integration:** 0 Critical, 4 Important, 6 Minor. It cleared three of the four named seams: `cost`
+is non-null on every path (only two `UsageCounts` constructions exist repo-wide), `<synthetic>` is excluded consistently,
+and the flat/split bases agree everywhere except the one documented branch.
+
+- **I-1 — accepted as a docs defect, code change declined.** It proposed clamping the parser so the split always sums to
+  the flat field. Declined: on a line with an absent flat field and a populated nested object the clamp prices **zero**,
+  converting a token-display error into a billing error — in the very case it argued was most likely — and it would retire
+  Task 4's M6 by making the two bases provably identical. The reviewer **withdrew the fix** on that argument. Resolved by
+  correcting three doc comments (`19e2efa`), which subsumes its M-2 and M-3.
+- **I-1 follow-on, and the more valuable half:** the reviewer pointed out that `cacheCreation1h + cacheCreation5m ===
+  cacheCreation` is a *measured property of today's data*, not a guarantee the parser makes. It was about to be written
+  into CLAUDE.md as an invariant, where the next person would have locked behaviour the parser may legitimately violate.
+  CLAUDE.md now states it with that caveat explicit.
+- **I-2 — accepted, fixed (`e314c44`).** Cost was rated against `totals.tokens.total`, which includes `<synthetic>` and any
+  unpriced model, while `cost` is drawn only from priced models. Now divides by `pricedTokenTotal(totals.models)`.
+- **I-3 — accepted, fixed (`1640e69`).** Seven surviving micro-USD references in the plan, where CLAUDE.md sends readers
+  for design rationale. Also corrected the plan's "TokenTotals is not extended" decision, which F-1 disproved.
+- **I-4 — accepted, fixed (`1640e69`).** Five cost invariants added to CLAUDE.md.
+- **M-1, M-4, M-5, M-6 — deferred, recorded.** `RequestSpeed` declared in two places (M-4 has real architectural merit and
+  is the one worth taking in a follow-up); an unreachable `?? ZERO_TOKENS` fallback; three sort styles in one layer; two
+  web-side split fields that cross the wire with no reader.
+
+**Reviewer 2, unnamed-mutation search:** 13 surviving mutations across 9 blind spots, each with a replacement test it
+verified both ways, in an isolated checkout created outside the repo. All fixed (`8193a7b`, `c0938a2`, `e314c44`). The two
+that would have shipped visible wrongness were both on the page's **headline** cards, which had zero assertions while their
+per-model equivalents were covered — transposing `scaledRate`'s two same-typed arguments rendered `$0.000000` instead of
+`$2.49`, and the net-saving card could display the raw counterfactual, the exact error the page's own copy warns against.
+Its negative results were equally useful: weekly-bucket summing, `addCost`'s unpriced branch, and a silently-missing
+`CostBreakdown` field are all genuinely pinned, and it correctly declined to report an equivalent mutant in `rateFor`'s
+tie-break.
+
+Every fix was re-proven by the controller: **14 mutations** on the Cost page work (11 scripted, 3 by hand), 3 rate
+transpositions including a **class kill** on a row with no value case of its own, and the `unpricedTokens` basis mutation
+that previously survived a green suite.
+
+### Plan Success Criteria — ticked with evidence
+
+- [x] `GET /api/stats` returns `cost` and `modelCost` on every cell, integer nano-USD, `cost.total` = sum over `modelCost`
+      — real-data smoke, 66 cells, 0 failures.
+- [x] Non-zero USD for all four models; `unpricedTokens` `0` — smoke table above. A synthetic unknown model proves the
+      counter increments (`aggregator.test.ts`).
+- [x] Each model shows cache-write spend, cache-read spend, and a net saving equal to the counterfactual minus their sum —
+      `Cost.test.tsx`, and the smoke table's `netSave` column.
+- [x] A weekly bucket's USD equals the sum of its days; a project-filtered total equals that project's cells —
+      `filterStats.test.ts`, at both a week and a month boundary, plus the filter-everything identity.
+- [x] Tokens either side of the Sonnet 5 boundary produce different USD — `cost-integration.test.ts` uses **2026-08-31 vs
+      2026-09-01**, adjacent to the boundary rather than the plan's 2026-08-15 / 2026-09-15, which is a stricter test of the
+      same criterion. Two separate `aggregate` runs (F-5).
+- [x] Cache-hit ratio, tool error rate, throughput, skill-token and model-token figures unchanged from `main` — **proven in
+      the strongest available form: the shared fixture with the four added fields stripped is byte-identical to
+      `beec4c8`.** Every pre-existing figure spot-checked identical.
+- [x] `npm test` and `npm run typecheck` pass in both packages — 147 and 167, typecheck 2/2, build 2/2.
+
 ## Wave Summaries
 
 **Wave 0:** 1 task, 1 commit (`38bfeb4`). Contract declarations in both packages, the shared fixture's cost data, and the
@@ -1374,7 +1471,10 @@ literals may gain the fields the contract change added, and nothing else"* — s
 keeps its four-term formula and the split must never enter it; (c) the shared fixture JSON is never to be mutated, even
 transiently for a mutation probe (**F-5**).
 
-**Wave 2:** —
+**Wave 2:** 2 tasks, 2 commits (`0a36474`, `2561dd0`). Task 8 was **added mid-run** (F-3). Task 7's rename probe — the
+claim the whole wave exists to make — was re-proven by the controller: renaming `rateFor` fails 5 of 6 cost-integration
+cases while `rates.test.ts` still passes under the same rename, so the probe isolates the *consumer* binding rather than
+merely detecting a broken file. **F-5** raised and ruled on.
 
 ## Carry-forward Notes
 
