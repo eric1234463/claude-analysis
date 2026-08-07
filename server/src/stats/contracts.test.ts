@@ -33,9 +33,9 @@ describe('AGGREGATE_STATS_KEYS', () => {
       skills: [],
       agents: [],
       totals: {
-        tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, total: 0 },
-        mainTokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, total: 0 },
-        sidechainTokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, total: 0 },
+        tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, cacheCreation1h: 0, cacheCreation5m: 0, total: 0 },
+        mainTokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, cacheCreation1h: 0, cacheCreation5m: 0, total: 0 },
+        sidechainTokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, cacheCreation1h: 0, cacheCreation5m: 0, total: 0 },
         sessionsStarted: 0,
         toolCalls: 0,
         toolErrors: 0,
@@ -51,6 +51,11 @@ describe('AGGREGATE_STATS_KEYS', () => {
         modelThroughput: {},
         skillThroughput: {},
         agents: {},
+        cost: {
+          input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0,
+          total: 0, uncachedCacheCost: 0, unpricedTokens: 0,
+        },
+        modelCost: {},
       },
     };
     expect(Object.keys(empty).sort()).toStrictEqual([...AGGREGATE_STATS_KEYS]);
