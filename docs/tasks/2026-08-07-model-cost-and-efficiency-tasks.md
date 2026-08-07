@@ -466,6 +466,44 @@ all — it is an import, and an import is a wave boundary. The Wave Overview's s
 
 ---
 
+### F-3 — the shared fixture's new fields made three suites red at Wave 0, and four test files nobody owns are type-exposed (raised by the Task 5 agent, 2026-08-07)
+
+The Task 5 agent reported that its success criterion *"every pre-existing assertion in `filterStats.test.ts` still passes
+unmodified"* was **impossible as written**. Verified against the committed file rather than taken on the agent's word:
+
+- `web/src/api/filterStats.test.ts:7` declares `const zero = { input, output, cacheRead, cacheCreation, total }` — a
+  **five-field** `TokenTotals` literal.
+- Lines 11 and 97 assert `filterStats(stats, {})` / `{ projects: [] }` `toStrictEqual(stats)` against the shared fixture,
+  which Wave 0 gave seven-field `TokenTotals` plus `cost` and `modelCost`.
+- So the file was **already 2-failing at `38bfeb4`**, before Task 5 touched anything, and Task 5's job is to turn it green.
+
+**This means my Execution Model warning was incomplete.** It named two intentionally-red things between Wave 0 and Wave 1
+(the type check, and `server/test/stats.integration.test.ts:75`). There was a third: any suite asserting a whole
+`TokenTotals` or a whole `UsageCounts` against the fixture. `filterStats.test.ts` was the one that mattered because a task
+owns it.
+
+**The wider exposure, which is the part no task owns.** Four more files carry `TokenTotals`-shaped literals:
+
+| File | Literals | Runtime at `d618c4c` | Nature |
+|---|---|---|---|
+| `server/src/stats/contracts.test.ts:36-38` | 3 | **PASS** (4/4) | `UsageCounts`-shaped literal — type-only |
+| `web/src/pages/Efficiency.test.tsx:269-271` | 3 | **PASS** (51/51 across the three page files) | `UsageCounts`-shaped literal — type-only |
+| `web/src/pages/Skills.test.tsx:128-129` | 1 | PASS | `tok()` helper returning a 5-field `TokenTotals` — type-only |
+| `web/src/pages/Overview.test.tsx:40-41` | 2 | PASS | **not** `TokenTotals` — chart-data rows (`{bucket, input, output, cacheRead, cacheCreation}`) from an unchanged page. Safe. |
+
+`Efficiency.test.tsx:177` uses `{ ...bucket.tokens, … }`, so it inherits the new fields and is safe.
+
+Measured, not assumed: every one of these passes at runtime, because vitest transpiles without type checking. The exposure
+is therefore **entirely `npm run typecheck` and `npm run build`** — which the Execution Model already declares red until
+Wave 1 lands, but Wave 1 **does not fix these files, because no task owns them**. Left alone, the Final Gate's type check
+stays red with no owner.
+
+**Resolution:** a new **Task 8** in Wave 2 owns exactly these three type-exposed files, with the precise error list taken
+from a real `npm run typecheck` run once Tasks 4–6 have landed (running it earlier would mix these errors with the
+expected pending-task ones). See Wave 2.
+
+---
+
 ## Wave 1
 
 ### ✅ Task 2 — Date-effective rate table
@@ -587,7 +625,7 @@ purely additive, C-5 unchanged, consumers may ignore it. Accepted.
 
 ---
 
-### ⬜ Task 3 — Parse the cache-TTL split and request speed; version the file cache
+### ✅ Task 3 — Parse the cache-TTL split and request speed; version the file cache
 
 **Phase:** 2 · **Wave:** 1
 **Provides:** populates C-1, C-2 · **Consumes:** C-1, C-2 (owner Task 1)
@@ -695,8 +733,25 @@ git add -- server/src/stats/parser.ts server/src/stats/parser.test.ts \
 git commit -m "Parse the cache-TTL split and request speed, and version the file cache to v3"
 ```
 
-**Progress notes:** —
-**Commit hash:** —
+**Progress notes:** ✅ Completed. Success criteria: MET (all 6). Files: the four listed paths, nothing outside them.
+Verified by controller: `parser.test.ts` → 41 PASS (baseline 28, +13 new, all 28 pre-existing intact);
+`file-cache.test.ts` → 13 PASS (baseline 11, +2 new). **All 7 named mutations re-proven** — M1/M3/M4/M5/M7 via
+`prove-mutations.sh` against `parser.test.ts` (4/1/5/1/1 failures), **M2 applied by hand** because it is a two-line
+transposition the TSV format cannot express (5 failures, incl. the traced `expected 2069 to be 4000` on
+`cacheCreation1h`), M6 via the script against `file-cache.test.ts` (3 failures). Every count matches the agent's report;
+tree restored and baseline green after each. C-1/C-2 CONFORM — diff read confirms `cacheCreation` is still
+`cache_creation_input_tokens ?? 0` untouched, the remainder is clamped with `Math.max(0, …)`, `speed` normalizes only the
+exact literal `'fast'`, and optional chaining on `cache_creation` is what delivers the never-throws property for a
+non-object value. Cache key `:v2` → `:v3`, single-character diff, nothing else in the key changed.
+**Agent claim corrected:** its Notes stated the sidechain fixture "carries `cache_creation_input_tokens: 6069` with no
+nested `cache_creation`". That is false as of `38bfeb4` — all three `req_side_G` lines carry `{1h: 4000, 5m: 2069}`,
+confirmed by direct `grep` and already proven by the Wave 0 verification script. No action taken; recorded so the claim
+is not inherited.
+Deviations (both anticipated by the brief, both inside its own files): `parser.test.ts:85`'s synthetic-event
+`toStrictEqual` gained `cacheCreation1h: 0, cacheCreation5m: 0`, and `file-cache.test.ts`'s shared `parsed` fixture gained
+the two split fields plus `speed` to satisfy C-2. No token count changed. The agent deliberately left `parser.test.ts`'s
+`sum()` helper summing the original four fields rather than widening a pre-existing assertion — correct call.
+**Commit hash:** `d618c4c`
 
 ---
 
