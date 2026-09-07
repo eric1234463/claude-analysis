@@ -4,6 +4,7 @@ import {
   AGGREGATE_STATS_KEYS,
   type AggregateStats,
   type CostBreakdown,
+  type SessionRecord,
   type ThroughputCounts,
   type TokenTotals,
   type UsageCounts,
@@ -58,7 +59,10 @@ function cell(over: Partial<UsageCounts> = {}): UsageCounts {
   };
 }
 
-function statsWith(days: Record<string, Record<string, UsageCounts>>): AggregateStats {
+function statsWith(
+  days: Record<string, Record<string, UsageCounts>>,
+  sessions: SessionRecord[] = [],
+): AggregateStats {
   return {
     generatedAt: '2026-08-01T00:00:00.000Z',
     scannedFiles: 0,
@@ -70,7 +74,29 @@ function statsWith(days: Record<string, Record<string, UsageCounts>>): Aggregate
     tools: [],
     skills: [],
     agents: [],
+    sessions,
     totals: cell(),
+  };
+}
+
+function session(over: Partial<SessionRecord> = {}): SessionRecord {
+  return {
+    sessionId: 's1',
+    project: '-a',
+    day: '2026-07-09',
+    startedAt: '2026-07-09T01:00:00.000Z',
+    endedAt: '2026-07-09T02:00:00.000Z',
+    durationMs: 3_600_000,
+    tokens: { ...zero },
+    mainTokens: { ...zero },
+    sidechainTokens: { ...zero },
+    toolCalls: 0,
+    toolErrors: 0,
+    agentRuns: 0,
+    mainTools: {},
+    sidechainTools: {},
+    cost: cost(),
+    ...over,
   };
 }
 
@@ -197,6 +223,41 @@ describe('filterStats', () => {
     } finally {
       globalThis.Date = RealDate;
     }
+  });
+});
+
+describe('session filtering', () => {
+  const sessions = [
+    session({ sessionId: 'in-range', day: '2026-07-09', project: '-a' }),
+    session({ sessionId: 'other-project', day: '2026-07-09', project: '-b' }),
+    session({ sessionId: 'out-of-range', day: '2026-07-20', project: '-a' }),
+  ];
+  const stats = statsWith({}, sessions);
+
+  it('keeps sessions whose START day is inside the range', () => {
+    expect(filterStats(stats, { from: '2026-07-01', to: '2026-07-10' }).sessions
+      .map((s) => s.sessionId)).toStrictEqual(['in-range', 'other-project']);
+  });
+
+  it('narrows by project the same way the day cells do', () => {
+    expect(filterStats(stats, { projects: ['-a'] }).sessions.map((s) => s.sessionId))
+      .toStrictEqual(['in-range', 'out-of-range']);
+  });
+
+  it('keeps a midnight-crossing session whole, filed under the day it started', () => {
+    // Started 2026-07-09, ran into 2026-07-10. A `to` of 07-09 keeps it; a `from` of 07-10
+    // drops it entirely rather than splitting it.
+    const crossing = statsWith({}, [session({
+      sessionId: 'crossing', day: '2026-07-09',
+      startedAt: '2026-07-09T15:00:00.000Z', endedAt: '2026-07-10T01:00:00.000Z',
+    })]);
+    expect(filterStats(crossing, { to: '2026-07-09' }).sessions).toHaveLength(1);
+    expect(filterStats(crossing, { from: '2026-07-10' }).sessions).toHaveLength(0);
+  });
+
+  it('passes the fixture sessions through untouched when nothing is filtered out', () => {
+    expect(filterStats(fixture as AggregateStats, {}).sessions)
+      .toStrictEqual((fixture as AggregateStats).sessions);
   });
 });
 

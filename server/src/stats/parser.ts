@@ -1,4 +1,4 @@
-import type { ParsedFile, TokenUsage, TranscriptFile, UsageEvent } from './contracts';
+import type { FileSession, ParsedFile, TokenUsage, TranscriptFile, UsageEvent } from './contracts';
 
 const MODEL_SUFFIX_RE = /\[[^\]]*\]$/;
 const COMMAND_NAME_RE = /<command-name>([^<]*)<\/command-name>/g;
@@ -15,6 +15,7 @@ interface RawContentBlock {
 
 interface RawLine {
   type?: string;
+  aiTitle?: string;
   uuid?: string;
   sessionId?: string;
   requestId?: string;
@@ -94,8 +95,10 @@ export function parseTranscript(
   const toolUseIdToName = new Map<string, string>();
   const requestTimings = new Map<string, RequestTiming>();
   let earliestTs: string | undefined;
+  let latestTs: string | undefined;
   let earliestLine: RawLine | undefined;
   let anchorCandidate: string | undefined;
+  let label: string | undefined;
 
   for (const raw of lines) {
     if (raw.trim() === '') continue;
@@ -113,6 +116,16 @@ export function parseTranscript(
         earliestTs = parsed.timestamp;
         earliestLine = parsed;
       }
+      if (latestTs === undefined || parsed.timestamp > latestTs) {
+        latestTs = parsed.timestamp;
+      }
+    }
+
+    // The session label. Claude Code rewrites `ai-title` as the session goes on, so the LAST
+    // one wins. Read before the ignore branch below but deliberately not exempted from it:
+    // an `ai-title` line is still an ignored line.
+    if (parsed.type === 'ai-title' && typeof parsed.aiTitle === 'string' && parsed.aiTitle.length > 0) {
+      label = parsed.aiTitle;
     }
 
     const usageKey = parsed.type === 'assistant' && parsed.message?.usage
@@ -281,5 +294,15 @@ export function parseTranscript(
   events.push(...otherEvents);
   events.push(...tokenEvents.values());
 
-  return { events, malformedLines, ignoredLines };
+  const session: FileSession = {
+    sessionId: file.sessionId,
+    project: file.project,
+    kind: file.kind,
+    ...(label !== undefined ? { label } : {}),
+    ...(earliestTs !== undefined
+      ? { day: dayOf(earliestTs, timeZone), startedAt: earliestTs, endedAt: latestTs ?? earliestTs }
+      : {}),
+  };
+
+  return { session, events, malformedLines, ignoredLines };
 }

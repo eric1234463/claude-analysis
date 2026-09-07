@@ -1,4 +1,4 @@
-import type { AggregateStats, CostBreakdown, SkillKey, ThroughputCounts, TokenTotals, UsageCounts } from './types';
+import type { AggregateStats, CostBreakdown, SessionRecord, SkillKey, ThroughputCounts, TokenTotals, UsageCounts } from './types';
 import { bucketKey, type Granularity } from './granularity';
 
 /**
@@ -185,6 +185,16 @@ export function filterStats(stats: AggregateStats, filter: StatsFilter): Aggrega
 
   const totals = mergeUsageCounts(selectedCells);
 
+  // A session is filed under its own start day, so it is matched on that single key rather
+  // than on the days its events touch — a session that ran past midnight is kept or dropped
+  // as one row, never split across the range boundary.
+  const sessions = stats.sessions.filter((session: SessionRecord) => {
+    if (from !== undefined && session.day < from) return false;
+    if (to !== undefined && session.day > to) return false;
+    if (projects && projects.length > 0 && !projects.includes(session.project)) return false;
+    return true;
+  });
+
   return {
     generatedAt: stats.generatedAt,
     scannedFiles: stats.scannedFiles,
@@ -196,6 +206,7 @@ export function filterStats(stats: AggregateStats, filter: StatsFilter): Aggrega
     tools: Object.keys(totals.tools).sort(),
     skills: skillsFromRecord(totals.skills),
     agents: Object.keys(totals.agents).sort(),
+    sessions,
     totals,
   };
 }

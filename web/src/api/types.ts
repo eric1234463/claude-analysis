@@ -97,6 +97,38 @@ export interface UsageCounts {
   modelCost: Record<string, CostBreakdown>;
 }
 
+/** One session: a main transcript plus every sidechain under its `<sessionId>/subagents/`
+ *  directory, rolled into a single row. Deliberately NOT a `UsageCounts` — it carries only
+ *  what the Sessions page reads. Every token event and tool call belongs to exactly one
+ *  session, so summing `sessions` reproduces `totals` for the fields they share. */
+export interface SessionRecord {
+  sessionId: string;
+  project: string;
+  /** `aiTitle` from the main transcript; absent when the session never got one. */
+  label?: string;
+  /** Day key of the session's earliest timestamped line, in the server's configured zone.
+   *  A session crossing midnight stays ONE row filed under the day it started, so session
+   *  rows and day cells can legitimately disagree. */
+  day: string;
+  /** ISO-8601 span; '' when nothing in the session's files was timestamped. */
+  startedAt: string;
+  endedAt: string;
+  /** `endedAt - startedAt` in ms. 0 for a single-timestamp session. */
+  durationMs: number;
+  tokens: TokenTotals;
+  mainTokens: TokenTotals;
+  sidechainTokens: TokenTotals;
+  /** Both lanes together — `mainTools` plus `sidechainTools`. */
+  toolCalls: number;
+  toolErrors: number;
+  agentRuns: number;
+  /** Per-tool calls and errors, split by the lane that made the call. No combined map is
+   *  stored: merge these two rather than trusting a third copy. */
+  mainTools: Record<string, ToolCounts>;
+  sidechainTools: Record<string, ToolCounts>;
+  cost: CostBreakdown;
+}
+
 export interface AggregateStats {
   generatedAt: string;                                    // ISO-8601 UTC, injected
   scannedFiles: number;
@@ -108,11 +140,13 @@ export interface AggregateStats {
   tools: string[];                                        // sorted
   skills: SkillKey[];                                     // sorted by `${source}|${name}`
   agents: string[];                                       // sorted
+  /** One row per session, sorted by `startedAt` then `sessionId`. */
+  sessions: SessionRecord[];
   totals: UsageCounts;
 }
 
 /** Sorted. Adding or removing a top-level key of AggregateStats is a contract change. */
 export const AGGREGATE_STATS_KEYS = [
   'agents', 'days', 'generatedAt', 'ignoredLines', 'malformedLines', 'models',
-  'projects', 'scannedFiles', 'skills', 'tools', 'totals',
+  'projects', 'scannedFiles', 'sessions', 'skills', 'tools', 'totals',
 ] as const;

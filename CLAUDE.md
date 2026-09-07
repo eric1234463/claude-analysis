@@ -114,9 +114,34 @@ Changing any of these means changing a regression test on purpose, not incidenta
   line's nested parts overshoot its flat field the parser keeps both as given, so do not add a
   regression test asserting `cacheCreation1h + cacheCreation5m === cacheCreation`. That is a property of
   today's data, not a guarantee the parser makes.
-- **The per-file cache key carries a schema tag** (`:v3`). Any change to `ParsedFile`'s shape must bump
+- **A session is the main transcript plus every sidechain under its `<sessionId>/subagents/`
+  directory, and `sessions` is a top-level array, not a day cell.** The sessionId comes off the
+  *path* (scanner), never from a line, so main and sidechain resolve to the same one; it rides on
+  `ParsedFile.session` rather than on every event. A session is filed under the day it **started**
+  and stays one row when it crosses midnight — so session rows and day cells legitimately
+  disagree, and the frontend filters sessions on `session.day` alone. Every token event and tool
+  call belongs to exactly one file and so to exactly one session: summing `sessions` reproduces
+  `totals` for the fields they share, which is what the regression tests assert. `SessionRecord`
+  is deliberately **not** a `UsageCounts` — 200+ full cells would triple the payload; it carries
+  only the tab's fields, and its `cost` reuses the same `event.model !== SYNTHETIC` guard.
+- **A session's tool calls are stored per lane (`mainTools` / `sidechainTools`) and never as a
+  third combined map.** `tool-call` and `tool-error` events already carry `isSidechain`, so each
+  lands in exactly one lane and the two maps sum to the `toolCalls` scalar. A page that wants the
+  lane-blind ranking merges them at render; storing a combined copy as well would let it drift out
+  of agreement with the halves. Subagents dominate here (32,073 of 52,456 real calls), which is the
+  whole point of the split.
+- **The session label is the transcript's own `ai-title`, never a prompt.** `aiTitle` is rewritten
+  as a session goes on, so the **last** one wins. Those lines stay in `ignoredLines` — reading a
+  title does not make the line counted. Sessions without one fall back to their UUID head in the
+  UI. Prompt text was rejected as a fallback: it would copy client data into
+  `.cache/stats-cache.json` and every `/api/stats` response.
+- **`SessionRecord.durationMs` is the file's wall-clock span, not active work.** A resumed session
+  appended to over three days reports ~75h. That is the honest reading of the transcript; do not
+  "fix" it by subtracting idle gaps, which the transcript cannot distinguish from a slow turn.
+- **The per-file cache key carries a schema tag** (`:v4`). Any change to `ParsedFile`'s shape must bump
   it, or already-cached transcripts keep serving the old shape forever under an unchanged mtime/size —
-  silently, with no error. The TTL split would have priced at zero for all history.
+  silently, with no error. The TTL split would have priced at zero for all history, and `:v4`'s
+  `ParsedFile.session` would have left every cached file with no session identity.
 
 ### Cross-package contract
 
@@ -148,6 +173,14 @@ weekly or monthly. `usageSeries(stats, granularity)` does the grouping once, key
 parsed at UTC midnight — still never from a timestamp, and never in the ambient zone. Rates
 (cache hit, tool error) divide after the bucket's counts are merged, so a week is weighted by volume
 rather than being the mean of its days' ratios.
+
+The Sessions page is the one view keyed on `stats.sessions` rather than on `series`: it re-derives
+every total from the filtered session rows and must never read a day cell, or a midnight-crossing
+session would be counted twice. Its `granularity` prop goes unused by design — a session is not
+time-bucketed. Tool calls and tokens each get a `Main | Subagent | All` column band, and a row
+click opens the per-session detail dialog (`ui/dialog.tsx`, the app's only dialog, built on the
+already-installed `radix-ui` package — do not add `@radix-ui/react-dialog`). The open row is held
+as a **session id**, not as the record: a refresh replaces every object, and an id still resolves.
 
 The Skills page shows **only skills you authored** — Claude Code's built-in skills and slash commands
 are excluded by the hand-kept denylist in `web/src/api/builtinSkills.ts`. Transcripts record no

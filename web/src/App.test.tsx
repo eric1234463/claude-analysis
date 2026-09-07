@@ -38,10 +38,10 @@ describe('App navigation', () => {
     expect(screen.queryByTestId('page-skills')).toBeNull();
   });
 
-  it('offers all five pages', () => {
+  it('offers all six pages', () => {
     const { deps } = fakes();
     render(<App stats={stats} deps={deps} />);
-    for (const name of ['Overview', 'Cost', 'Skills', 'Tools', 'Efficiency']) {
+    for (const name of ['Overview', 'Cost', 'Skills', 'Tools', 'Sessions', 'Efficiency']) {
       expect(screen.getByRole('button', { name })).toBeTruthy();
     }
   });
@@ -55,6 +55,7 @@ describe('App navigation', () => {
       'Cost',
       'Skills',
       'Tools',
+      'Sessions',
       'Efficiency',
     ]);
   });
@@ -71,6 +72,7 @@ describe('App navigation', () => {
       ['Cost', /api list price/i],
       ['Skills', /built-ins are excluded/i],
       ['Tools', /tool call volume/i],
+      ['Sessions', /one row per session/i],
       ['Efficiency', /cache reuse/i],
     ];
     for (const [name, copy] of pages) {
@@ -88,6 +90,14 @@ describe('App navigation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Tools' }));
     expect(screen.getByTestId('page-tools')).toBeTruthy();
     expect(screen.queryByTestId('page-efficiency')).toBeNull();
+  });
+
+  it('mounts the Sessions page and unmounts Overview when Sessions is picked', () => {
+    const { deps } = fakes();
+    render(<App stats={stats} deps={deps} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Sessions' }));
+    expect(screen.getByTestId('page-sessions')).toBeTruthy();
+    expect(screen.queryByTestId('page-overview')).toBeNull();
   });
 
   it('mounts the Cost page and unmounts Overview when Cost is picked', () => {

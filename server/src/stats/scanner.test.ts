@@ -10,12 +10,12 @@ const SESSION = '11111111-1111-1111-1111-111111111111';
 describe('classifyTranscriptPath', () => {
   it('classifies a main session file by the directory directly under the root', () => {
     expect(classifyTranscriptPath('/r', '/r/-proj/abc.jsonl'))
-      .toStrictEqual({ project: '-proj', kind: 'main' });
+      .toStrictEqual({ project: '-proj', kind: 'main', sessionId: 'abc' });
   });
 
   it('classifies a sidechain file, walking up past subagents/ and the session dir', () => {
     expect(classifyTranscriptPath('/r', `/r/-proj/${SESSION}/subagents/agent-a99.jsonl`))
-      .toStrictEqual({ project: '-proj', kind: 'sidechain', agentId: 'a99' });
+      .toStrictEqual({ project: '-proj', kind: 'sidechain', sessionId: SESSION, agentId: 'a99' });
   });
 
   it('returns null for paths that are not one of the two recognized shapes', () => {
@@ -34,6 +34,14 @@ describe('scanTranscripts over the committed fixtures', () => {
       path.join('-fixture-project', `${SESSION}.jsonl`),
       path.join('-fixture-project-two', '22222222-2222-2222-2222-222222222222.jsonl'),
     ]);
+  });
+
+  it('gives a sidechain the same sessionId as its parent main file', async () => {
+    const files = await scanTranscripts(FIXTURES);
+    const forSession = files.filter((f) => f.sessionId === SESSION);
+    expect(forSession.map((f) => f.kind).sort()).toStrictEqual(['main', 'sidechain']);
+    expect(files.find((f) => f.project === '-fixture-project-two')?.sessionId)
+      .toBe('22222222-2222-2222-2222-222222222222');
   });
 
   it('never keys a project as "subagents" or by a session UUID', async () => {

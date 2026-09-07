@@ -7,10 +7,10 @@ import {
 } from './contracts';
 
 describe('AGGREGATE_STATS_KEYS', () => {
-  it('is exactly the eleven declared top-level keys, sorted', () => {
+  it('is exactly the twelve declared top-level keys, sorted', () => {
     expect([...AGGREGATE_STATS_KEYS]).toStrictEqual([
       'agents', 'days', 'generatedAt', 'ignoredLines', 'malformedLines', 'models',
-      'projects', 'scannedFiles', 'skills', 'tools', 'totals',
+      'projects', 'scannedFiles', 'sessions', 'skills', 'tools', 'totals',
     ]);
   });
 
@@ -32,6 +32,7 @@ describe('AGGREGATE_STATS_KEYS', () => {
       tools: [],
       skills: [],
       agents: [],
+      sessions: [],
       totals: {
         tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, cacheCreation1h: 0, cacheCreation5m: 0, total: 0 },
         mainTokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, cacheCreation1h: 0, cacheCreation5m: 0, total: 0 },

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   AGGREGATE_STATS_KEYS,
   type AggregateStats,
+  type FileSession,
   type ParsedFile,
   type TokenUsage,
   type UsageEvent,
@@ -23,8 +24,24 @@ const splitUsage = (overrides: Partial<TokenUsage> = {}): TokenUsage => ({
   ...overrides,
 });
 
-const file = (events: UsageEvent[], malformedLines = 0, ignoredLines = 0): ParsedFile =>
-  ({ events, malformedLines, ignoredLines });
+/** `sessionId` defaults per file so the default-cell tests stay one session each; the
+ *  session-rollup tests pass it explicitly to group files. */
+const file = (
+  events: UsageEvent[],
+  malformedLines = 0,
+  ignoredLines = 0,
+  session: Partial<FileSession> = {},
+): ParsedFile => ({
+  session: {
+    sessionId: 's-default',
+    project: events[0] && 'project' in events[0] ? events[0].project : '-p',
+    kind: 'main',
+    ...session,
+  },
+  events,
+  malformedLines,
+  ignoredLines,
+});
 
 const tokenEvent = (
   overrides: Partial<Extract<UsageEvent, { kind: 'token' }>> = {},
@@ -604,6 +621,140 @@ describe('cost pricing', () => {
     expect(defaultCell(stats).tokens).toStrictEqual(expected);
     expect(defaultCell(stats).mainTokens).toStrictEqual(expected);
     expect(defaultCell(stats).models['test-model']).toStrictEqual(expected);
+  });
+});
+
+describe('the sessions dimension', () => {
+  const mainOf = (sessionId: string, events: UsageEvent[], session: Partial<FileSession> = {}) =>
+    file(events, 0, 0, {
+      sessionId,
+      kind: 'main',
+      day: '2026-07-09',
+      startedAt: '2026-07-09T01:00:00.000Z',
+      endedAt: '2026-07-09T01:30:00.000Z',
+      ...session,
+    });
+
+  it('merges a main file and its sidechains into ONE row, splitting the two token lanes', () => {
+    const main = mainOf('s1', [
+      tokenEvent({ dedupeKey: 'm1', usage: usage(1, 10) }),
+      { kind: 'tool-call', day: '2026-08-05', project: '-p', tool: 'Bash', isSidechain: false },
+    ]);
+    const side = file([
+      tokenEvent({ dedupeKey: 'a1', usage: usage(2, 20), isSidechain: true, agentType: 'Explore' }),
+      { kind: 'tool-call', day: '2026-08-05', project: '-p', tool: 'Bash', isSidechain: true },
+      { kind: 'tool-error', day: '2026-08-05', project: '-p', tool: 'Bash', isSidechain: true },
+      { kind: 'agent-run', day: '2026-08-05', project: '-p', agentType: 'Explore' },
+    ], 0, 0, {
+      sessionId: 's1',
+      kind: 'sidechain',
+      day: '2026-07-09',
+      startedAt: '2026-07-09T01:10:00.000Z',
+      endedAt: '2026-07-09T02:00:00.000Z',
+    });
+
+    const out = aggregate([main, side], AT);
+    expect(out.sessions).toHaveLength(1);
+    const [row] = out.sessions;
+    expect(row.sessionId).toBe('s1');
+    expect(row.mainTokens.total).toBe(11);
+    expect(row.sidechainTokens.total).toBe(22);
+    expect(row.tokens.total).toBe(33);
+    expect(row.toolCalls).toBe(2);
+    expect(row.toolErrors).toBe(1);
+    expect(row.agentRuns).toBe(1);
+    // Same tool, one call in each lane -- and the sidechain's failure stays on its own side.
+    expect(row.mainTools).toStrictEqual({ Bash: { calls: 1, errors: 0 } });
+    expect(row.sidechainTools).toStrictEqual({ Bash: { calls: 1, errors: 1 } });
+    // The span covers both files: earliest start, latest end.
+    expect(row.startedAt).toBe('2026-07-09T01:00:00.000Z');
+    expect(row.endedAt).toBe('2026-07-09T02:00:00.000Z');
+    expect(row.durationMs).toBe(60 * 60 * 1000);
+  });
+
+  it('splits every tool call into exactly one lane, so the two maps sum to toolCalls', () => {
+    const main = mainOf('s1', [
+      { kind: 'tool-call', day: '2026-08-05', project: '-p', tool: 'Read', isSidechain: false },
+      { kind: 'tool-call', day: '2026-08-05', project: '-p', tool: 'Edit', isSidechain: false },
+    ]);
+    const side = file([
+      { kind: 'tool-call', day: '2026-08-05', project: '-p', tool: 'Grep', isSidechain: true },
+    ], 0, 0, { sessionId: 's1', kind: 'sidechain', day: '2026-07-09',
+      startedAt: '2026-07-09T01:05:00.000Z', endedAt: '2026-07-09T01:20:00.000Z' });
+
+    const [row] = aggregate([main, side], AT).sessions;
+    const calls = (tools: Record<string, { calls: number }>) =>
+      Object.values(tools).reduce((sum, t) => sum + t.calls, 0);
+    expect(calls(row.mainTools)).toBe(2);
+    expect(calls(row.sidechainTools)).toBe(1);
+    expect(calls(row.mainTools) + calls(row.sidechainTools)).toBe(row.toolCalls);
+  });
+
+  it('leaves the sidechain lane empty for a session that never spawned a subagent', () => {
+    const [row] = aggregate([mainOf('s1', [
+      { kind: 'tool-call', day: '2026-08-05', project: '-p', tool: 'Read', isSidechain: false },
+    ])], AT).sessions;
+    expect(row.mainTools).toStrictEqual({ Read: { calls: 1, errors: 0 } });
+    expect(row.sidechainTools).toStrictEqual({});
+  });
+
+  it('sums back to `totals` for every field the two share', () => {
+    const out = aggregate([
+      mainOf('s1', [tokenEvent({ dedupeKey: 'm1', usage: usage(1, 10) })]),
+      mainOf('s2', [
+        tokenEvent({ dedupeKey: 'm2', usage: usage(2, 20) }),
+        { kind: 'tool-call', day: '2026-08-05', project: '-p', tool: 'Read', isSidechain: false },
+      ], { startedAt: '2026-07-10T01:00:00.000Z', endedAt: '2026-07-10T01:05:00.000Z', day: '2026-07-10' }),
+    ], AT);
+
+    const sum = (pick: (r: (typeof out.sessions)[number]) => number) =>
+      out.sessions.reduce((acc, r) => acc + pick(r), 0);
+    expect(sum((r) => r.tokens.total)).toBe(out.totals.tokens.total);
+    expect(sum((r) => r.mainTokens.total)).toBe(out.totals.mainTokens.total);
+    expect(sum((r) => r.sidechainTokens.total)).toBe(out.totals.sidechainTokens.total);
+    expect(sum((r) => r.toolCalls)).toBe(out.totals.toolCalls);
+    expect(sum((r) => r.cost.total)).toBe(out.totals.cost.total);
+  });
+
+  it('files a session under the day it STARTED, even when its events land on other days', () => {
+    const out = aggregate([mainOf('s1', [
+      tokenEvent({ day: '2026-07-09', dedupeKey: 'm1' }),
+      tokenEvent({ day: '2026-07-10', dedupeKey: 'm2' }),
+    ], { endedAt: '2026-07-10T02:00:00.000Z' })], AT);
+
+    expect(out.sessions).toHaveLength(1);
+    expect(out.sessions[0].day).toBe('2026-07-09');
+    expect(Object.keys(out.days)).toStrictEqual(['2026-07-09', '2026-07-10']);
+  });
+
+  it('takes the label from the main file, whatever order the files arrive in', () => {
+    const side = file([tokenEvent({ dedupeKey: 'a1', isSidechain: true })], 0, 0, {
+      sessionId: 's1', kind: 'sidechain', day: '2026-07-09',
+      startedAt: '2026-07-09T01:10:00.000Z', endedAt: '2026-07-09T01:20:00.000Z',
+    });
+    const main = mainOf('s1', [tokenEvent({ dedupeKey: 'm1' })], { label: 'Session analysis tab' });
+
+    expect(aggregate([side, main], AT).sessions[0].label).toBe('Session analysis tab');
+    expect(aggregate([main, side], AT).sessions[0].label).toBe('Session analysis tab');
+  });
+
+  it('excludes <synthetic> from session cost, exactly as the day cell does', () => {
+    const out = aggregate([mainOf('s1', [
+      tokenEvent({ dedupeKey: 'm1', model: '<synthetic>', usage: usage(9, 9) }),
+    ])], AT);
+    expect(out.sessions[0].tokens.total).toBe(18);
+    expect(out.sessions[0].cost.total).toBe(0);
+    expect(out.sessions[0].cost).toStrictEqual(out.totals.cost);
+  });
+
+  it('drops a session that contributed nothing, and sorts the rest by start then id', () => {
+    const unreadable = file([], 0, 0, { sessionId: 's-empty', kind: 'main' });
+    const late = mainOf('s-late', [tokenEvent({ dedupeKey: 'm1' })],
+      { startedAt: '2026-07-11T00:00:00.000Z', endedAt: '2026-07-11T00:01:00.000Z' });
+    const early = mainOf('s-early', [tokenEvent({ dedupeKey: 'm2' })]);
+
+    const out = aggregate([unreadable, late, early], AT);
+    expect(out.sessions.map((r) => r.sessionId)).toStrictEqual(['s-early', 's-late']);
   });
 });
 

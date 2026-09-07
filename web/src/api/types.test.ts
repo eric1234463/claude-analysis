@@ -9,10 +9,10 @@ import { AGGREGATE_STATS_KEYS, type AggregateStats } from './types';
 const stats = fixture as AggregateStats;
 
 describe('web AggregateStats declaration', () => {
-  it('declares exactly the eleven sorted top-level keys', () => {
+  it('declares exactly the twelve sorted top-level keys', () => {
     expect([...AGGREGATE_STATS_KEYS]).toStrictEqual([
       'agents', 'days', 'generatedAt', 'ignoredLines', 'malformedLines', 'models',
-      'projects', 'scannedFiles', 'skills', 'tools', 'totals',
+      'projects', 'scannedFiles', 'sessions', 'skills', 'tools', 'totals',
     ]);
   });
 
@@ -28,6 +28,18 @@ describe('web AggregateStats declaration', () => {
     expect(stats.totals.mainTokens.total).toBe(163);
     expect(stats.totals.sidechainTokens.total).toBe(27275);
     expect(stats.totals.sessionsStarted).toBe(2);
+  });
+
+  it('carries one session row per main transcript, summing back to the totals', () => {
+    expect(stats.sessions.map((s) => s.sessionId)).toStrictEqual([
+      '11111111-1111-1111-1111-111111111111',
+      '22222222-2222-2222-2222-222222222222',
+    ]);
+    // 27420 + 18, and 145 + 18 on the main lane -- the same numbers as the day cells.
+    expect(stats.sessions.reduce((sum, s) => sum + s.tokens.total, 0)).toBe(27438);
+    expect(stats.sessions.reduce((sum, s) => sum + s.mainTokens.total, 0)).toBe(163);
+    expect(stats.sessions.reduce((sum, s) => sum + s.toolCalls, 0)).toBe(4);
+    expect(stats.sessions[0].durationMs).toBe(37_860_000);
   });
 
   it('is bucketed by local day, not UTC, and counts one session per main file', () => {
