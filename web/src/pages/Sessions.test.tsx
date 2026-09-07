@@ -38,10 +38,10 @@ describe('Sessions page', () => {
   });
 
   it('splits main from subagent tokens per session and totals the two lanes', () => {
-    renderPage();
-    // 27275 of 27438 tokens are subagent work in the fixture.
-    expect(screen.getByText('99%')).toBeTruthy();
     const { container } = renderPage();
+    // 27275 of 27438 tokens are subagent work in the fixture — the tile states the share.
+    expect(within(screen.getByText('Subagent share').closest('div')!.parentElement!)
+      .getByText('99%')).toBeTruthy();
     const first = rowsOf(container)[0];
     // Main 145, subagent 27,275, total 27,420 — compact-formatted.
     expect(within(first).getByText('145')).toBeTruthy();
@@ -65,32 +65,41 @@ describe('Sessions page', () => {
       })],
     });
     const row = rowsOf(container)[0];
-    // Ranked by calls across both lanes (Bash 5 + 3), capped at three, remainder collapsed.
+    // Ranked by calls across both lanes (Bash 5 + 3), capped at two, remainder collapsed.
     expect(within(row).getByText('Bash ×8')).toBeTruthy();
     expect(within(row).getByText('Read ×4')).toBeTruthy();
-    expect(within(row).getByText('Edit ×1')).toBeTruthy();
-    expect(within(row).queryByText('Write ×1')).toBeNull();
-    expect(within(row).getByText('+1')).toBeTruthy();
+    expect(within(row).queryByText('Edit ×1')).toBeNull();
+    expect(within(row).getByText('+2')).toBeTruthy();
     expect(within(row).getByText('14')).toBeTruthy();
   });
 
-  it('breaks each session’s call count into its main and subagent lanes', () => {
+  it('gives tool calls and tokens their own main / subagent / all columns', () => {
     const { container } = renderPage({
       sessions: [withLabel({
-        toolCalls: 14,
-        mainTools: { Bash: { calls: 7, errors: 0 } },
-        sidechainTools: { Read: { calls: 7, errors: 0 } },
+        toolCalls: 12,
+        toolErrors: 0,
+        agentRuns: 0,
+        mainTools: { Bash: { calls: 9, errors: 0 } },
+        sidechainTools: { Read: { calls: 3, errors: 0 } },
       })],
     });
+    // Row cells in order: session, started, length, main calls, sub calls, all calls,
+    // main tokens, sub tokens, all tokens, most used, cost.
+    const cells = [...rowsOf(container)[0].querySelectorAll('td')].map((c) => c.textContent);
+    expect(cells[3]).toBe('9');
+    expect(cells[4]).toBe('3');
+    expect(cells[5]).toBe('12');
+    expect(cells[6]).toBe('145');
+    expect(cells[7]).toContain('27.3K');
+    expect(cells[8]).toBe('27.4K');
+  });
+
+  it('shows the subagent run count beside the subagent calls, and the lane share', () => {
+    const { container } = renderPage();
     const row = rowsOf(container)[0];
-    expect(within(row).getByText(/7 m/)).toBeTruthy();
-    expect(within(row).getByText(/7 s/)).toBeTruthy();
-    // The fixture session's own split: 3 of its 4 calls are the main agent's.
-    const plain = rowsOf(render(
-      <Sessions stats={stats} series={series} granularity="day" />,
-    ).container)[0];
-    expect(within(plain).getByText(/3 m/)).toBeTruthy();
-    expect(within(plain).getByText(/1 s/)).toBeTruthy();
+    // One Agent run, and 99% of the fixture session's tokens are its subagent's.
+    expect(within(row).getByText('1 runs')).toBeTruthy();
+    expect(within(row).getByText('99%')).toBeTruthy();
   });
 
   it('stacks tool calls by lane across the selection, ranked by total calls', () => {
@@ -129,7 +138,7 @@ describe('Sessions page', () => {
     const { container } = renderPage({ sessions: [busy, heavy] });
 
     expect(within(rowsOf(container)[0]).getByText('Heavy')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Tools/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Sort by total tool calls' }));
     expect(within(rowsOf(container)[0]).getByText('Busy')).toBeTruthy();
   });
 
@@ -153,6 +162,80 @@ describe('Sessions page', () => {
       sessions: [withLabel({ day: '2026-07-09', endedAt: '2026-07-10T05:00:00Z' })],
     });
     expect(within(rowsOf(container)[0]).getByText('2026-07-09')).toBeTruthy();
+  });
+});
+
+describe('Sessions detail dialog', () => {
+  const detailed = withLabel({
+    label: 'Task 6',
+    toolCalls: 12,
+    toolErrors: 2,
+    agentRuns: 3,
+    mainTools: { Bash: { calls: 7, errors: 2 } },
+    sidechainTools: { Read: { calls: 5, errors: 0 } },
+  });
+
+  it('stays closed until a row is clicked', () => {
+    const { container } = renderPage({ sessions: [detailed] });
+    expect(screen.queryByTestId('dialog-session')).toBeNull();
+    fireEvent.click(rowsOf(container)[0]);
+    expect(screen.getByTestId('dialog-session')).toBeTruthy();
+  });
+
+  it('opens from the session name by keyboard too, without double-firing', () => {
+    renderPage({ sessions: [detailed] });
+    fireEvent.click(screen.getByRole('button', { name: 'Task 6' }));
+    const dialog = screen.getByTestId('dialog-session');
+    expect(within(dialog).getByText('Task 6')).toBeTruthy();
+  });
+
+  it('breaks the session down by lane, tool and cost line', () => {
+    const { container } = renderPage({ sessions: [detailed] });
+    fireEvent.click(rowsOf(container)[0]);
+    const dialog = screen.getByTestId('dialog-session');
+
+    // Full id and project, not the truncated forms the table shows.
+    expect(within(dialog).getByText(detailed.sessionId)).toBeTruthy();
+    const runs = within(dialog).getByText('Subagent runs').parentElement as HTMLElement;
+    expect(within(runs).getByText('3')).toBeTruthy();
+
+    const tokenRows = within(dialog).getByTestId('detail-tokens');
+    const totalRow = within(tokenRows).getByText('Total').closest('tr') as HTMLElement;
+    // Main 145 / subagent 27,275 / all 27,420 — grouped digits, not compacted.
+    expect(within(totalRow).getByText('145')).toBeTruthy();
+    expect(within(totalRow).getByText('27,275')).toBeTruthy();
+    expect(within(totalRow).getByText('27,420')).toBeTruthy();
+
+    const toolRows = within(dialog).getByTestId('detail-tools');
+    const bashRow = within(toolRows).getByText('Bash').closest('tr') as HTMLElement;
+    expect([...bashRow.querySelectorAll('td')].map((c) => c.textContent))
+      .toStrictEqual(['Bash', '7', '0', '2', '7']);
+    const readRow = within(toolRows).getByText('Read').closest('tr') as HTMLElement;
+    expect([...readRow.querySelectorAll('td')].map((c) => c.textContent))
+      .toStrictEqual(['Read', '0', '5', '—', '5']);
+
+    expect(within(dialog).getByTestId('detail-cost')).toBeTruthy();
+  });
+
+  it('says so rather than rendering an empty table for a session with no tool calls', () => {
+    const { container } = renderPage({
+      sessions: [withLabel({ toolCalls: 0, toolErrors: 0, mainTools: {}, sidechainTools: {} })],
+    });
+    fireEvent.click(rowsOf(container)[0]);
+    const dialog = screen.getByTestId('dialog-session');
+    expect(within(dialog).getByText('No tool calls in this session.')).toBeTruthy();
+    expect(within(dialog).queryByTestId('detail-tools')).toBeNull();
+  });
+
+  it('flags unpriced tokens instead of implying the cost is complete', () => {
+    const { container } = renderPage({
+      sessions: [withLabel({
+        cost: { ...stats.sessions[0].cost, unpricedTokens: 4321 },
+      })],
+    });
+    fireEvent.click(rowsOf(container)[0]);
+    expect(within(screen.getByTestId('dialog-session')).getByText(/4,321 tokens ran on a model/))
+      .toBeTruthy();
   });
 });
 

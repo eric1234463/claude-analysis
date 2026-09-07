@@ -177,7 +177,10 @@ rather than being the mean of its days' ratios.
 The Sessions page is the one view keyed on `stats.sessions` rather than on `series`: it re-derives
 every total from the filtered session rows and must never read a day cell, or a midnight-crossing
 session would be counted twice. Its `granularity` prop goes unused by design — a session is not
-time-bucketed.
+time-bucketed. Tool calls and tokens each get a `Main | Subagent | All` column band, and a row
+click opens the per-session detail dialog (`ui/dialog.tsx`, the app's only dialog, built on the
+already-installed `radix-ui` package — do not add `@radix-ui/react-dialog`). The open row is held
+as a **session id**, not as the record: a refresh replaces every object, and an id still resolves.
 
 The Skills page shows **only skills you authored** — Claude Code's built-in skills and slash commands
 are excluded by the hand-kept denylist in `web/src/api/builtinSkills.ts`. Transcripts record no
