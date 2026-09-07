@@ -124,6 +124,12 @@ Changing any of these means changing a regression test on purpose, not incidenta
   `totals` for the fields they share, which is what the regression tests assert. `SessionRecord`
   is deliberately **not** a `UsageCounts` — 200+ full cells would triple the payload; it carries
   only the tab's fields, and its `cost` reuses the same `event.model !== SYNTHETIC` guard.
+- **A session's tool calls are stored per lane (`mainTools` / `sidechainTools`) and never as a
+  third combined map.** `tool-call` and `tool-error` events already carry `isSidechain`, so each
+  lands in exactly one lane and the two maps sum to the `toolCalls` scalar. A page that wants the
+  lane-blind ranking merges them at render; storing a combined copy as well would let it drift out
+  of agreement with the halves. Subagents dominate here (32,073 of 52,456 real calls), which is the
+  whole point of the split.
 - **The session label is the transcript's own `ai-title`, never a prompt.** `aiTitle` is rewritten
   as a session goes on, so the **last** one wins. Those lines stay in `ignoredLines` — reading a
   title does not make the line counted. Sessions without one fall back to their UUID head in the

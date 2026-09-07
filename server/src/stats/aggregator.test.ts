@@ -663,11 +663,39 @@ describe('the sessions dimension', () => {
     expect(row.toolCalls).toBe(2);
     expect(row.toolErrors).toBe(1);
     expect(row.agentRuns).toBe(1);
-    expect(row.tools).toStrictEqual({ Bash: { calls: 2, errors: 1 } });
+    // Same tool, one call in each lane -- and the sidechain's failure stays on its own side.
+    expect(row.mainTools).toStrictEqual({ Bash: { calls: 1, errors: 0 } });
+    expect(row.sidechainTools).toStrictEqual({ Bash: { calls: 1, errors: 1 } });
     // The span covers both files: earliest start, latest end.
     expect(row.startedAt).toBe('2026-07-09T01:00:00.000Z');
     expect(row.endedAt).toBe('2026-07-09T02:00:00.000Z');
     expect(row.durationMs).toBe(60 * 60 * 1000);
+  });
+
+  it('splits every tool call into exactly one lane, so the two maps sum to toolCalls', () => {
+    const main = mainOf('s1', [
+      { kind: 'tool-call', day: '2026-08-05', project: '-p', tool: 'Read', isSidechain: false },
+      { kind: 'tool-call', day: '2026-08-05', project: '-p', tool: 'Edit', isSidechain: false },
+    ]);
+    const side = file([
+      { kind: 'tool-call', day: '2026-08-05', project: '-p', tool: 'Grep', isSidechain: true },
+    ], 0, 0, { sessionId: 's1', kind: 'sidechain', day: '2026-07-09',
+      startedAt: '2026-07-09T01:05:00.000Z', endedAt: '2026-07-09T01:20:00.000Z' });
+
+    const [row] = aggregate([main, side], AT).sessions;
+    const calls = (tools: Record<string, { calls: number }>) =>
+      Object.values(tools).reduce((sum, t) => sum + t.calls, 0);
+    expect(calls(row.mainTools)).toBe(2);
+    expect(calls(row.sidechainTools)).toBe(1);
+    expect(calls(row.mainTools) + calls(row.sidechainTools)).toBe(row.toolCalls);
+  });
+
+  it('leaves the sidechain lane empty for a session that never spawned a subagent', () => {
+    const [row] = aggregate([mainOf('s1', [
+      { kind: 'tool-call', day: '2026-08-05', project: '-p', tool: 'Read', isSidechain: false },
+    ])], AT).sessions;
+    expect(row.mainTools).toStrictEqual({ Read: { calls: 1, errors: 0 } });
+    expect(row.sidechainTools).toStrictEqual({});
   });
 
   it('sums back to `totals` for every field the two share', () => {

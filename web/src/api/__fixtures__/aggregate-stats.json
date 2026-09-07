@@ -115,11 +115,13 @@
       "toolCalls": 4,
       "toolErrors": 1,
       "agentRuns": 1,
-      "tools": {
+      "mainTools": {
         "Agent": { "calls": 1, "errors": 0 },
         "Bash": { "calls": 1, "errors": 1 },
-        "Read": { "calls": 1, "errors": 0 },
         "Skill": { "calls": 1, "errors": 0 }
+      },
+      "sidechainTools": {
+        "Read": { "calls": 1, "errors": 0 }
       },
       "cost": {
         "input": 80000, "output": 4575000, "cacheRead": 10573500,
@@ -140,7 +142,8 @@
       "toolCalls": 0,
       "toolErrors": 0,
       "agentRuns": 0,
-      "tools": {},
+      "mainTools": {},
+      "sidechainTools": {},
       "cost": {
         "input": 14000, "output": 110000, "cacheRead": 0,
         "cacheWrite5m": 0, "cacheWrite1h": 0,

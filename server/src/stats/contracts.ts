@@ -197,11 +197,16 @@ export interface SessionRecord {
   tokens: TokenTotals;
   mainTokens: TokenTotals;
   sidechainTokens: TokenTotals;
+  /** Both lanes together — `mainTools` plus `sidechainTools`. Kept as a scalar because it is
+   *  what the totals invariant is asserted against and what the table sorts on. */
   toolCalls: number;
   toolErrors: number;
   agentRuns: number;
-  /** Per-tool calls and errors, main and sidechain lanes combined. */
-  tools: Record<string, ToolCounts>;
+  /** Per-tool calls and errors, split by the lane that made the call: the main agent's own
+   *  turns vs. its subagents'. There is deliberately no third, combined map — a reader that
+   *  wants one merges these two, so the two can never disagree with a stored total. */
+  mainTools: Record<string, ToolCounts>;
+  sidechainTools: Record<string, ToolCounts>;
   cost: CostBreakdown;
 }
 

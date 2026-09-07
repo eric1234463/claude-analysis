@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Legend, Tooltip, XAxis, YAxis } from 'recharts';
 import { Bot, Clock, MessagesSquare, Wrench } from 'lucide-react';
-import type { AggregateStats, SessionRecord } from '../api/types';
+import type { AggregateStats, SessionRecord, ToolCounts } from '../api/types';
 import type { SeriesPoint } from '../api/filterStats';
 import type { Granularity } from '../api/granularity';
 import { Badge } from '@/components/ui/badge';
@@ -42,6 +42,28 @@ const CHART_ROWS = 12;
 
 /** How many tools a row names before it collapses the rest into a `+n` badge. */
 const TOOLS_PER_ROW = 3;
+
+/** How many tools the lane chart ranks. */
+const CHART_TOOLS = 10;
+
+/** Total calls in one lane's map. No combined count is stored, so both lanes are summed here. */
+function laneCalls(tools: Record<string, ToolCounts>): number {
+  let total = 0;
+  for (const counts of Object.values(tools)) total += counts.calls;
+  return total;
+}
+
+/** Merges a session's two lanes into one ranked list — the "which tools" question, lane-blind. */
+function mergedTools(session: SessionRecord): Array<[string, ToolCounts]> {
+  const merged = new Map<string, ToolCounts>();
+  for (const tools of [session.mainTools, session.sidechainTools]) {
+    for (const [tool, counts] of Object.entries(tools)) {
+      const prev = merged.get(tool) ?? { calls: 0, errors: 0 };
+      merged.set(tool, { calls: prev.calls + counts.calls, errors: prev.errors + counts.errors });
+    }
+  }
+  return [...merged.entries()].sort(([a, x], [b, y]) => y.calls - x.calls || a.localeCompare(b));
+}
 
 /** The columns the table can be ordered by. All sort descending. */
 type SortKey = 'tokens' | 'toolCalls' | 'cost' | 'startedAt';
@@ -122,11 +144,34 @@ export function Sessions(props: PageProps) {
       sidechain: acc.sidechain + s.sidechainTokens.total,
       toolCalls: acc.toolCalls + s.toolCalls,
       toolErrors: acc.toolErrors + s.toolErrors,
+      mainCalls: acc.mainCalls + laneCalls(s.mainTools),
+      sidechainCalls: acc.sidechainCalls + laneCalls(s.sidechainTools),
       agentRuns: acc.agentRuns + s.agentRuns,
       cost: acc.cost + s.cost.total,
     }),
-    { tokens: 0, main: 0, sidechain: 0, toolCalls: 0, toolErrors: 0, agentRuns: 0, cost: 0 },
+    {
+      tokens: 0, main: 0, sidechain: 0, toolCalls: 0, toolErrors: 0,
+      mainCalls: 0, sidechainCalls: 0, agentRuns: 0, cost: 0,
+    },
   );
+
+  // Tool calls by lane across the whole selection: which tools the main agent reaches for
+  // against which its subagents do. Summed from the session rows, never from a day cell.
+  const byTool = new Map<string, { main: number; sidechain: number }>();
+  for (const session of sessions) {
+    for (const [tool, counts] of Object.entries(session.mainTools)) {
+      const prev = byTool.get(tool) ?? { main: 0, sidechain: 0 };
+      byTool.set(tool, { ...prev, main: prev.main + counts.calls });
+    }
+    for (const [tool, counts] of Object.entries(session.sidechainTools)) {
+      const prev = byTool.get(tool) ?? { main: 0, sidechain: 0 };
+      byTool.set(tool, { ...prev, sidechain: prev.sidechain + counts.calls });
+    }
+  }
+  const laneData = [...byTool.entries()]
+    .map(([tool, lanes]) => ({ tool, ...lanes }))
+    .sort((a, b) => (b.main + b.sidechain) - (a.main + a.sidechain) || a.tool.localeCompare(b.tool))
+    .slice(0, CHART_TOOLS);
 
   const perSession = (value: number) =>
     sessions.length === 0 ? 0 : Math.round(value / sessions.length);
@@ -162,7 +207,7 @@ export function Sessions(props: PageProps) {
         <StatCard
           label="Tool calls"
           value={formatNumber(totals.toolCalls)}
-          hint={`${formatNumber(perSession(totals.toolCalls))} per session, ${formatNumber(totals.toolErrors)} failed`}
+          hint={`${formatNumber(totals.mainCalls)} main · ${formatNumber(totals.sidechainCalls)} subagent`}
           icon={Wrench}
         />
         <StatCard
@@ -229,6 +274,56 @@ export function Sessions(props: PageProps) {
         </BarChart>
       </ChartCard>
 
+      <ChartCard
+        testId="chart-tool-lanes"
+        title="Tool calls by lane"
+        description={`Top ${Math.min(CHART_TOOLS, laneData.length)} tools, main agent against its subagents`}
+        height={Math.max(240, laneData.length * 34)}
+      >
+        <BarChart
+          data={laneData}
+          layout="vertical"
+          margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
+        >
+          <CartesianGrid {...GRID_PROPS} vertical horizontal={false} />
+          <XAxis
+            type="number"
+            tick={AXIS_TICK}
+            axisLine={false}
+            tickLine={false}
+            allowDecimals={false}
+          />
+          <YAxis
+            type="category"
+            dataKey="tool"
+            tick={AXIS_TICK}
+            axisLine={false}
+            tickLine={false}
+            width={150}
+            tickFormatter={truncateTick}
+          />
+          <Tooltip {...tokenTooltip} />
+          <Legend {...LEGEND_PROPS} />
+          <Bar
+            dataKey="main"
+            name="Main"
+            stackId="calls"
+            fill={CHART_COLORS[0]}
+            minPointSize={1}
+            {...SEGMENT_GAP}
+          />
+          <Bar
+            dataKey="sidechain"
+            name="Subagent"
+            stackId="calls"
+            fill={CHART_COLORS[1]}
+            minPointSize={1}
+            radius={[0, 4, 4, 0]}
+            {...SEGMENT_GAP}
+          />
+        </BarChart>
+      </ChartCard>
+
       <Card>
         <CardHeader className="gap-1">
           <CardTitle className="text-sm font-medium">Every session in this selection</CardTitle>
@@ -270,8 +365,7 @@ export function Sessions(props: PageProps) {
             </TableHeader>
             <TableBody>
               {rows.map((session) => {
-                const tools = Object.entries(session.tools)
-                  .sort(([a, x], [b, y]) => y.calls - x.calls || a.localeCompare(b));
+                const tools = mergedTools(session);
                 const shown = tools.slice(0, TOOLS_PER_ROW);
                 const hidden = tools.length - shown.length;
                 return (
@@ -291,8 +385,12 @@ export function Sessions(props: PageProps) {
                     <TableCell className="tabular text-right">
                       {formatDuration(session.durationMs)}
                     </TableCell>
-                    <TableCell className="tabular text-right">
+                    <TableCell className="tabular text-right whitespace-nowrap">
                       {formatNumber(session.toolCalls)}
+                      <span className="block text-[11px] text-muted-foreground">
+                        {formatNumber(laneCalls(session.mainTools))} m ·{' '}
+                        {formatNumber(laneCalls(session.sidechainTools))} s
+                      </span>
                       {session.toolErrors > 0 && (
                         <span className="block text-[11px] text-destructive">
                           {formatNumber(session.toolErrors)} failed

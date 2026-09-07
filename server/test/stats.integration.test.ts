@@ -107,12 +107,14 @@ describe('the wired stats module over the fixture transcripts', () => {
     const [paired] = sessions;
     expect(paired.mainTokens.total).toBe(145);
     expect(paired.sidechainTokens.total).toBe(27275);
-    expect(paired.tools).toStrictEqual({
+    // The Agent call and the failed Bash call are the main agent's; the Read is its
+    // subagent's, read from the sidechain transcript.
+    expect(paired.mainTools).toStrictEqual({
       Agent: { calls: 1, errors: 0 },
       Bash: { calls: 1, errors: 1 },
-      Read: { calls: 1, errors: 0 },
       Skill: { calls: 1, errors: 0 },
     });
+    expect(paired.sidechainTools).toStrictEqual({ Read: { calls: 1, errors: 0 } });
     // Starts 16:30Z on 07-08, which is 00:30 on 07-09 in Asia/Hong_Kong, and ends inside the
     // sidechain at 03:01Z -- one row spanning both files.
     expect(paired.day).toBe('2026-07-09');

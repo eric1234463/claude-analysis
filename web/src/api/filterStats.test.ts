@@ -93,7 +93,8 @@ function session(over: Partial<SessionRecord> = {}): SessionRecord {
     toolCalls: 0,
     toolErrors: 0,
     agentRuns: 0,
-    tools: {},
+    mainTools: {},
+    sidechainTools: {},
     cost: cost(),
     ...over,
   };

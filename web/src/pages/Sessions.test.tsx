@@ -49,26 +49,73 @@ describe('Sessions page', () => {
     expect(within(first).getByText('27.4K')).toBeTruthy();
   });
 
-  it('names each session’s most-used tools with their call counts', () => {
+  it('names each session’s most-used tools, merging the two lanes for the ranking', () => {
     const { container } = renderPage({
       sessions: [withLabel({
         toolCalls: 14,
-        tools: {
-          Bash: { calls: 8, errors: 1 },
-          Read: { calls: 4, errors: 0 },
+        mainTools: {
+          Bash: { calls: 5, errors: 1 },
           Edit: { calls: 1, errors: 0 },
           Write: { calls: 1, errors: 0 },
+        },
+        sidechainTools: {
+          Bash: { calls: 3, errors: 0 },
+          Read: { calls: 4, errors: 0 },
         },
       })],
     });
     const row = rowsOf(container)[0];
-    // Ranked by calls, capped at three, with the remainder collapsed.
+    // Ranked by calls across both lanes (Bash 5 + 3), capped at three, remainder collapsed.
     expect(within(row).getByText('Bash ×8')).toBeTruthy();
     expect(within(row).getByText('Read ×4')).toBeTruthy();
     expect(within(row).getByText('Edit ×1')).toBeTruthy();
     expect(within(row).queryByText('Write ×1')).toBeNull();
     expect(within(row).getByText('+1')).toBeTruthy();
     expect(within(row).getByText('14')).toBeTruthy();
+  });
+
+  it('breaks each session’s call count into its main and subagent lanes', () => {
+    const { container } = renderPage({
+      sessions: [withLabel({
+        toolCalls: 14,
+        mainTools: { Bash: { calls: 7, errors: 0 } },
+        sidechainTools: { Read: { calls: 7, errors: 0 } },
+      })],
+    });
+    const row = rowsOf(container)[0];
+    expect(within(row).getByText(/7 m/)).toBeTruthy();
+    expect(within(row).getByText(/7 s/)).toBeTruthy();
+    // The fixture session's own split: 3 of its 4 calls are the main agent's.
+    const plain = rowsOf(render(
+      <Sessions stats={stats} series={series} granularity="day" />,
+    ).container)[0];
+    expect(within(plain).getByText(/3 m/)).toBeTruthy();
+    expect(within(plain).getByText(/1 s/)).toBeTruthy();
+  });
+
+  it('stacks tool calls by lane across the selection, ranked by total calls', () => {
+    const { container } = renderPage({
+      sessions: [
+        withLabel({ sessionId: 'a', mainTools: { Bash: { calls: 3, errors: 0 } }, sidechainTools: {} }),
+        withLabel({ sessionId: 'b', mainTools: {}, sidechainTools: { Bash: { calls: 2, errors: 0 }, Grep: { calls: 9, errors: 0 } } }),
+      ],
+    });
+    const chart = container.querySelector('[data-testid="chart-tool-lanes"]')!;
+    // Two tools, two stacked series each; Grep (9) outranks Bash (3 + 2).
+    expect(chart.querySelectorAll('.recharts-bar-rectangle').length).toBe(4);
+    expect(within(chart as HTMLElement).getByText('Grep')).toBeTruthy();
+    expect(within(chart as HTMLElement).getByText('Bash')).toBeTruthy();
+  });
+
+  it('totals the lanes in the tool-call tile', () => {
+    renderPage({
+      sessions: [withLabel({
+        toolCalls: 6,
+        mainTools: { Bash: { calls: 4, errors: 0 } },
+        sidechainTools: { Read: { calls: 2, errors: 0 } },
+      })],
+    });
+    expect(screen.getByText('4 main · 2 subagent')).toBeTruthy();
   });
 
   it('shows the failed calls of a session alongside its total', () => {

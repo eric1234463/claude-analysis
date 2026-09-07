@@ -217,7 +217,8 @@ function emptySession(session: FileSession): SessionRecord {
     toolCalls: 0,
     toolErrors: 0,
     agentRuns: 0,
-    tools: {},
+    mainTools: {},
+    sidechainTools: {},
     cost: emptyCost(),
   };
 }
@@ -259,13 +260,17 @@ function addToSession(record: SessionRecord, event: UsageEvent, rateFor: RateLoo
       break;
     }
     case 'tool-call': {
-      const toolCounts = (record.tools[event.tool] ??= { calls: 0, errors: 0 });
+      const lane = event.isSidechain ? record.sidechainTools : record.mainTools;
+      const toolCounts = (lane[event.tool] ??= { calls: 0, errors: 0 });
       toolCounts.calls += 1;
       record.toolCalls += 1;
       break;
     }
     case 'tool-error': {
-      const toolCounts = (record.tools[event.tool] ??= { calls: 0, errors: 0 });
+      // A tool_result belongs to the transcript that issued the call, so the error lands in
+      // the same lane as its tool-call without needing to be matched back to one.
+      const lane = event.isSidechain ? record.sidechainTools : record.mainTools;
+      const toolCounts = (lane[event.tool] ??= { calls: 0, errors: 0 });
       toolCounts.errors += 1;
       record.toolErrors += 1;
       break;
@@ -335,7 +340,11 @@ export function aggregate(
   // lines) is dropped rather than shown as a row of zeroes.
   const sessions = [...sessionRecords.values()]
     .filter((record) => record.startedAt !== '' || record.tokens.total > 0 || record.toolCalls > 0)
-    .map((record) => ({ ...record, tools: sortRecord(record.tools) }))
+    .map((record) => ({
+      ...record,
+      mainTools: sortRecord(record.mainTools),
+      sidechainTools: sortRecord(record.sidechainTools),
+    }))
     .sort((a, b) => (a.startedAt === b.startedAt
       ? a.sessionId.localeCompare(b.sessionId)
       : a.startedAt.localeCompare(b.startedAt)));

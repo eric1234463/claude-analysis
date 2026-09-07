@@ -118,11 +118,14 @@ export interface SessionRecord {
   tokens: TokenTotals;
   mainTokens: TokenTotals;
   sidechainTokens: TokenTotals;
+  /** Both lanes together — `mainTools` plus `sidechainTools`. */
   toolCalls: number;
   toolErrors: number;
   agentRuns: number;
-  /** Per-tool calls and errors, main and sidechain lanes combined. */
-  tools: Record<string, ToolCounts>;
+  /** Per-tool calls and errors, split by the lane that made the call. No combined map is
+   *  stored: merge these two rather than trusting a third copy. */
+  mainTools: Record<string, ToolCounts>;
+  sidechainTools: Record<string, ToolCounts>;
   cost: CostBreakdown;
 }
 
