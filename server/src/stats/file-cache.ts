@@ -6,7 +6,7 @@ export function fileCacheKey(
   file: Pick<TranscriptFile, 'path' | 'mtimeMs' | 'size'>,
   timeZone: string,
 ): string {
-  return `${file.path}:${file.mtimeMs}:${file.size}:${timeZone}:v3`;
+  return `${file.path}:${file.mtimeMs}:${file.size}:${timeZone}:v4`;
 }
 
 export class JsonFileAggregateCache implements FileAggregateCache {

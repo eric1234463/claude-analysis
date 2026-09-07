@@ -33,7 +33,14 @@ export class TranscriptStatsPipeline implements StatsPipeline {
           const raw = await readFile(file.path, 'utf8');
           parsed = parseTranscript(file, raw.split('\n'), this.config.timeZone);
         } catch {
-          parsed = { events: [], malformedLines: 0, ignoredLines: 0 };
+          // Session identity comes off the path, so an unreadable file still names its
+          // session — it just contributes no events to it.
+          parsed = {
+            session: { sessionId: file.sessionId, project: file.project, kind: file.kind },
+            events: [],
+            malformedLines: 0,
+            ignoredLines: 0,
+          };
           readSucceeded = false;
         }
         // A transient read/parse failure must not be cached: caching it would make the

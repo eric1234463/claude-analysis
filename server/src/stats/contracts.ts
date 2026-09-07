@@ -8,6 +8,11 @@ export interface TranscriptFile {
    *  (e.g. '-Users-eric-dash-hail-backend'). Never a segment below it. */
   project: string;
   kind: TranscriptKind;
+  /** The session this transcript belongs to, read off the path: the main file's basename
+   *  (`<sessionId>.jsonl`) or the sidechain's parent session directory
+   *  (`<sessionId>/subagents/agent-<agentId>.jsonl`). Both kinds carry it, which is what
+   *  makes a main file and its sidechains one session. */
+  sessionId: string;
   /** Sidechain only: the `<agentId>` from the filename `agent-<agentId>.jsonl`. */
   agentId?: string;
   /** Sidechain only: `agentType` from the adjacent `agent-<agentId>.meta.json`,
@@ -68,7 +73,27 @@ export type UsageEvent =
   | { kind: 'session-start'; day: string; project: string; sessionId: string }
   | { kind: 'agent-run'; day: string; project: string; agentType: string };
 
+/** Per-file session identity and wall clock. One transcript file belongs to exactly one
+ *  session, so this rides on the file rather than on every event. */
+export interface FileSession {
+  sessionId: string;
+  project: string;
+  kind: TranscriptKind;
+  /** Last `aiTitle` seen on an `ai-title` line, when the file has one. Those lines stay in
+   *  `ignoredLines` — reading the title does not make them counted lines. */
+  label?: string;
+  /** Day key (configured zone) of the earliest timestamped line, or '' when the file has
+   *  no timestamped line at all. */
+  day?: string;
+  /** ISO-8601 of the earliest / latest timestamped line, absent when there is none.
+   *  Any `type` qualifies here — unlike the throughput anchor, which excludes bookkeeping
+   *  lines — because this is the file's wall clock, not a request bracket. */
+  startedAt?: string;
+  endedAt?: string;
+}
+
 export interface ParsedFile {
+  session: FileSession;
   events: UsageEvent[];
   /** Lines that failed JSON.parse, including a torn final line of a live file. */
   malformedLines: number;
@@ -150,6 +175,36 @@ export interface UsageCounts {
   modelCost: Record<string, CostBreakdown>;
 }
 
+/** One session: the main transcript plus every sidechain under its `<sessionId>/subagents/`
+ *  directory, rolled into a single row. Deliberately NOT a `UsageCounts` — a session cell
+ *  carries only what the Sessions tab reads, so 200+ of them stay a small payload.
+ *  Every token event and tool call belongs to exactly one file and so to exactly one
+ *  session: summing `sessions` reproduces `totals` for the fields they share. */
+export interface SessionRecord {
+  sessionId: string;
+  project: string;
+  /** `aiTitle` from the main transcript; absent when the session never got one. */
+  label?: string;
+  /** Day key of the session's earliest timestamped line, in the configured zone — the key
+   *  the frontend's date filter matches on. A session crossing midnight stays ONE row and
+   *  is filed under the day it started, so session rows and day cells can disagree. */
+  day: string;
+  /** ISO-8601 span across the session's files; '' when nothing in them was timestamped. */
+  startedAt: string;
+  endedAt: string;
+  /** `endedAt - startedAt` in ms. 0 for a single-timestamp session. */
+  durationMs: number;
+  tokens: TokenTotals;
+  mainTokens: TokenTotals;
+  sidechainTokens: TokenTotals;
+  toolCalls: number;
+  toolErrors: number;
+  agentRuns: number;
+  /** Per-tool calls and errors, main and sidechain lanes combined. */
+  tools: Record<string, ToolCounts>;
+  cost: CostBreakdown;
+}
+
 export interface AggregateStats {
   generatedAt: string;                                    // ISO-8601 UTC, injected
   scannedFiles: number;
@@ -161,13 +216,15 @@ export interface AggregateStats {
   tools: string[];                                        // sorted
   skills: SkillKey[];                                     // sorted by `${source}|${name}`
   agents: string[];                                       // sorted
+  /** One row per session, sorted by `startedAt` then `sessionId`. */
+  sessions: SessionRecord[];
   totals: UsageCounts;
 }
 
 /** Sorted. Adding or removing a top-level key of AggregateStats is a contract change. */
 export const AGGREGATE_STATS_KEYS = [
   'agents', 'days', 'generatedAt', 'ignoredLines', 'malformedLines', 'models',
-  'projects', 'scannedFiles', 'skills', 'tools', 'totals',
+  'projects', 'scannedFiles', 'sessions', 'skills', 'tools', 'totals',
 ] as const;
 
 // C-7 — FileAggregateCache port + fileCacheKey

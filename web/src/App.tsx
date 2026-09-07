@@ -25,6 +25,7 @@ import { Overview } from './pages/Overview';
 import { Cost } from './pages/Cost';
 import { Skills } from './pages/Skills';
 import { Tools } from './pages/Tools';
+import { Sessions } from './pages/Sessions';
 import { Efficiency } from './pages/Efficiency';
 
 export interface AppDeps {
@@ -46,6 +47,7 @@ const PAGES = [
   { name: 'Cost', Component: Cost },
   { name: 'Skills', Component: Skills },
   { name: 'Tools', Component: Tools },
+  { name: 'Sessions', Component: Sessions },
   { name: 'Efficiency', Component: Efficiency },
 ] as const;
 
@@ -54,6 +56,7 @@ const PAGE_SUBTITLES: Record<(typeof PAGES)[number]['name'], string> = {
   Cost: 'What each model costs at API list price, and whether it earns its rate.',
   Skills: 'Which of your own skills you actually reach for. Claude Code built-ins are excluded.',
   Tools: 'Tool call volume and where calls fail.',
+  Sessions: 'One row per session: its tools, and main against subagent tokens.',
   Efficiency: 'Cache reuse, error rates and subagent leverage.',
 };
 

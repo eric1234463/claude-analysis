@@ -18,6 +18,7 @@ function fileOf(p: string, kind: 'main' | 'sidechain'): TranscriptFile {
     path: p,
     project: '-fixture-project',
     kind,
+    sessionId: SESSION,
     ...(kind === 'sidechain'
       ? { agentId: 'afixture0000000001', agentType: 'general-purpose' }
       : {}),
@@ -38,7 +39,7 @@ const tokens = (events: UsageEvent[]) =>
   events.filter((e): e is Extract<UsageEvent, { kind: 'token' }> => e.kind === 'token');
 
 const MAIN: TranscriptFile = {
-  path: '/r/-p/s.jsonl', project: '-p', kind: 'main', mtimeMs: 1, size: 1,
+  path: '/r/-p/s.jsonl', project: '-p', kind: 'main', sessionId: 's', mtimeMs: 1, size: 1,
 };
 const line = (o: object) => JSON.stringify(o);
 const tokenOf = (parsed: ParsedFile, key: string) =>
@@ -415,6 +416,48 @@ describe('session and agent identity', () => {
     expect(runs).toHaveLength(1);
     expect(runs[0].agentType).toBe('general-purpose');
     expect(parseMain().events.filter((e) => e.kind === 'agent-run')).toHaveLength(0);
+  });
+});
+
+describe('ParsedFile.session', () => {
+  it('carries the file identity and the wall clock of its earliest and latest lines', () => {
+    const main = parseMain();
+    expect(main.session).toStrictEqual({
+      sessionId: SESSION,
+      project: '-fixture-project',
+      kind: 'main',
+      // 16:30Z is 00:30 the next day in Asia/Hong_Kong -- the day key follows the zone.
+      day: '2026-07-09',
+      startedAt: '2026-07-08T16:30:00Z',
+      // The main file's own last line -- the session's 03:01Z end comes from the sidechain,
+      // and the two are merged in the aggregator, not here.
+      endedAt: '2026-07-09T02:05:00Z',
+    });
+  });
+
+  it('gives a sidechain the SAME sessionId as its parent, so the pair is one session', () => {
+    expect(parseSide().session.sessionId).toBe(SESSION);
+    expect(parseSide().session.kind).toBe('sidechain');
+  });
+
+  it('leaves the clock fields absent when no line carries a timestamp', () => {
+    const out = parseTranscript(MAIN, [line({ type: 'mode', mode: 'normal' })], TZ);
+    expect(out.session).toStrictEqual({ sessionId: 's', project: '-p', kind: 'main' });
+  });
+
+  it('takes the LAST aiTitle as the label, and still counts those lines as ignored', () => {
+    const out = parseTranscript(MAIN, [
+      line({ type: 'ai-title', aiTitle: 'First guess' }),
+      line({ type: 'ai-title', aiTitle: 'Session analysis tab' }),
+    ], TZ);
+    expect(out.session.label).toBe('Session analysis tab');
+    expect(out.ignoredLines).toBe(2);
+  });
+
+  it('has no label when the ai-title line is absent or empty', () => {
+    expect(parseMain().session.label).toBeUndefined();
+    expect(parseTranscript(MAIN, [line({ type: 'ai-title', aiTitle: '' })], TZ).session.label)
+      .toBeUndefined();
   });
 });
 

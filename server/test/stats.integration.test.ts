@@ -96,6 +96,33 @@ describe('the wired stats module over the fixture transcripts', () => {
     await app.close();
   });
 
+  it('rolls a main transcript and its sidechain into one session row', async () => {
+    const app = await appFor(FIXTURES);
+    const res = await request(app.getHttpServer()).get('/api/stats').expect(200);
+    const sessions: AggregateStats['sessions'] = res.body.sessions;
+    expect(sessions.map((s) => s.sessionId)).toStrictEqual([
+      '11111111-1111-1111-1111-111111111111',
+      '22222222-2222-2222-2222-222222222222',
+    ]);
+    const [paired] = sessions;
+    expect(paired.mainTokens.total).toBe(145);
+    expect(paired.sidechainTokens.total).toBe(27275);
+    expect(paired.tools).toStrictEqual({
+      Agent: { calls: 1, errors: 0 },
+      Bash: { calls: 1, errors: 1 },
+      Read: { calls: 1, errors: 0 },
+      Skill: { calls: 1, errors: 0 },
+    });
+    // Starts 16:30Z on 07-08, which is 00:30 on 07-09 in Asia/Hong_Kong, and ends inside the
+    // sidechain at 03:01Z -- one row spanning both files.
+    expect(paired.day).toBe('2026-07-09');
+    expect(paired.durationMs).toBe(37_860_000);
+    // Every session sums back to the totals the dashboard shows.
+    const sum = sessions.reduce((acc, s) => acc + s.tokens.total, 0);
+    expect(sum).toBe(res.body.totals.tokens.total);
+    await app.close();
+  });
+
   it('counts subagent work exactly once, from the sidechain file only', async () => {
     const app = await appFor(FIXTURES);
     const res = await request(app.getHttpServer()).get('/api/stats').expect(200);

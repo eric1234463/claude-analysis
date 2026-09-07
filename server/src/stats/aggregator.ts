@@ -1,7 +1,9 @@
 import type {
   AggregateStats,
   CostBreakdown,
+  FileSession,
   ParsedFile,
+  SessionRecord,
   SkillKey,
   ThroughputCounts,
   TokenTotals,
@@ -201,6 +203,80 @@ function addToCounts(counts: UsageCounts, event: UsageEvent, rateFor: RateLookup
   }
 }
 
+function emptySession(session: FileSession): SessionRecord {
+  return {
+    sessionId: session.sessionId,
+    project: session.project,
+    day: '',
+    startedAt: '',
+    endedAt: '',
+    durationMs: 0,
+    tokens: emptyTokenTotals(),
+    mainTokens: emptyTokenTotals(),
+    sidechainTokens: emptyTokenTotals(),
+    toolCalls: 0,
+    toolErrors: 0,
+    agentRuns: 0,
+    tools: {},
+    cost: emptyCost(),
+  };
+}
+
+/** Folds one file's identity into its session row. Called once per file, so the earliest
+ *  start and latest end win across the main transcript and all of its sidechains — a
+ *  session that crosses midnight stays one row, filed under the day it started. */
+function mergeSessionIdentity(record: SessionRecord, session: FileSession): void {
+  if (session.label !== undefined && record.label === undefined) {
+    // Only the main transcript carries an `ai-title`, so this is deterministic regardless
+    // of the order the scanner hands a session's files over.
+    record.label = session.label;
+  }
+  if (session.startedAt !== undefined
+    && (record.startedAt === '' || session.startedAt < record.startedAt)) {
+    record.startedAt = session.startedAt;
+    record.day = session.day ?? '';
+  }
+  if (session.endedAt !== undefined && session.endedAt > record.endedAt) {
+    record.endedAt = session.endedAt;
+  }
+  record.durationMs = record.startedAt === '' || record.endedAt === ''
+    ? 0
+    : Math.max(0, Date.parse(record.endedAt) - Date.parse(record.startedAt));
+}
+
+/** The session lane of one event. Only the fields the Sessions tab reads are accumulated —
+ *  a session is not a full UsageCounts on purpose. */
+function addToSession(record: SessionRecord, event: UsageEvent, rateFor: RateLookup): void {
+  switch (event.kind) {
+    case 'token': {
+      addUsage(record.tokens, event.usage);
+      addUsage(event.isSidechain ? record.sidechainTokens : record.mainTokens, event.usage);
+      if (event.model !== SYNTHETIC) {
+        // Same guard as the day cell, so <synthetic> is excluded from session cost by
+        // construction rather than by a second rule.
+        addCost(record.cost, event.usage, rateFor(event.model, event.day, event.speed));
+      }
+      break;
+    }
+    case 'tool-call': {
+      const toolCounts = (record.tools[event.tool] ??= { calls: 0, errors: 0 });
+      toolCounts.calls += 1;
+      record.toolCalls += 1;
+      break;
+    }
+    case 'tool-error': {
+      const toolCounts = (record.tools[event.tool] ??= { calls: 0, errors: 0 });
+      toolCounts.errors += 1;
+      record.toolErrors += 1;
+      break;
+    }
+    case 'agent-run': {
+      record.agentRuns += 1;
+      break;
+    }
+  }
+}
+
 function sortRecord<T>(record: Record<string, T>): Record<string, T> {
   const sorted: Record<string, T> = {};
   for (const key of Object.keys(record).sort()) {
@@ -229,6 +305,7 @@ export function aggregate(
   rateFor: RateLookup = tableRateFor,
 ): AggregateStats {
   const days: Record<string, Record<string, UsageCounts>> = {};
+  const sessionRecords = new Map<string, SessionRecord>();
   const totals = emptyCounts();
   let malformedLines = 0;
   let ignoredLines = 0;
@@ -237,13 +314,31 @@ export function aggregate(
     malformedLines += file.malformedLines;
     ignoredLines += file.ignoredLines;
 
+    const sessionId = file.session.sessionId;
+    let sessionRecord = sessionRecords.get(sessionId);
+    if (sessionRecord === undefined) {
+      sessionRecord = emptySession(file.session);
+      sessionRecords.set(sessionId, sessionRecord);
+    }
+    mergeSessionIdentity(sessionRecord, file.session);
+
     for (const event of file.events) {
       const dayCells = (days[event.day] ??= {});
       const cell = (dayCells[event.project] ??= emptyCounts());
       addToCounts(cell, event, rateFor);
       addToCounts(totals, event, rateFor);
+      addToSession(sessionRecord, event, rateFor);
     }
   }
+
+  // A session with nothing in it (an unreadable file, or a transcript of pure bookkeeping
+  // lines) is dropped rather than shown as a row of zeroes.
+  const sessions = [...sessionRecords.values()]
+    .filter((record) => record.startedAt !== '' || record.tokens.total > 0 || record.toolCalls > 0)
+    .map((record) => ({ ...record, tools: sortRecord(record.tools) }))
+    .sort((a, b) => (a.startedAt === b.startedAt
+      ? a.sessionId.localeCompare(b.sessionId)
+      : a.startedAt.localeCompare(b.startedAt)));
 
   const sortedDays: Record<string, Record<string, UsageCounts>> = {};
   for (const day of Object.keys(days).sort()) {
@@ -283,6 +378,7 @@ export function aggregate(
     tools: Object.keys(totals.tools).sort(),
     skills,
     agents: Object.keys(totals.agents).sort(),
+    sessions,
     totals: sortCounts(totals),
   };
 }

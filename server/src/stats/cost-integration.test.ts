@@ -25,6 +25,7 @@ const TRANSCRIPT: TranscriptFile = {
   path: '/transcripts/-fixture-project/session-cost.jsonl',
   project: '-fixture-project',
   kind: 'main',
+  sessionId: 'session-cost',
   mtimeMs: 1_700_000_000_000,
   size: 4_096,
 };
@@ -208,10 +209,10 @@ describe('cost through the real pipeline and the real rate table', () => {
     expect(stats.models).toStrictEqual(['claude-nonexistent-9']);
   });
 
-  it('keys the file cache at v3, so entries written before the TTL split and speed miss once', () => {
+  it('keys the file cache at v4, so entries written before ParsedFile.session miss once', () => {
     expect(fileCacheKey(
       { path: '/transcripts/-p/s.jsonl', mtimeMs: 1234, size: 56 },
       'Asia/Hong_Kong',
-    )).toBe('/transcripts/-p/s.jsonl:1234:56:Asia/Hong_Kong:v3');
+    )).toBe('/transcripts/-p/s.jsonl:1234:56:Asia/Hong_Kong:v4');
   });
 });

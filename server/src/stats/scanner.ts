@@ -8,20 +8,22 @@ const SIDECHAIN_RE = /^agent-(.+)\.jsonl$/;
 export function classifyTranscriptPath(
   root: string,
   absPath: string,
-): { project: string; kind: TranscriptKind; agentId?: string } | null {
+): { project: string; kind: TranscriptKind; sessionId: string; agentId?: string } | null {
   const rel = path.relative(root, absPath);
   const parts = rel.split(path.sep);
 
   // <project>/<sessionId>.jsonl -> main
   if (parts.length === 2 && parts[1].endsWith('.jsonl')) {
-    return { project: parts[0], kind: 'main' };
+    return { project: parts[0], kind: 'main', sessionId: parts[1].slice(0, -'.jsonl'.length) };
   }
 
   // <project>/<sessionId>/subagents/agent-<agentId>.jsonl -> sidechain
   if (parts.length === 4 && parts[2] === 'subagents') {
     const match = SIDECHAIN_RE.exec(parts[3]);
     if (match) {
-      return { project: parts[0], kind: 'sidechain', agentId: match[1] };
+      // parts[1] is the session directory, so a sidechain resolves to the SAME sessionId as
+      // its parent main file — that is what makes the pair one session downstream.
+      return { project: parts[0], kind: 'sidechain', sessionId: parts[1], agentId: match[1] };
     }
   }
 
@@ -80,6 +82,7 @@ export async function scanTranscripts(root: string): Promise<TranscriptFile[]> {
       path: absPath,
       project: classified.project,
       kind: classified.kind,
+      sessionId: classified.sessionId,
       mtimeMs: stats.mtimeMs,
       size: stats.size,
     };

@@ -6,6 +6,8 @@ import type { ParsedFile } from './contracts';
 import { JsonFileAggregateCache, fileCacheKey } from './file-cache';
 
 const parsed: ParsedFile = {
+  session: { sessionId: 's', project: '-a', kind: 'main', day: '2026-07-09',
+    startedAt: '2026-07-09T01:00:00.000Z', endedAt: '2026-07-09T01:05:00.000Z' },
   events: [
     { kind: 'token', day: '2026-07-09', project: '-a', model: 'claude-opus-4-8',
       dedupeKey: 'r1',
@@ -29,7 +31,7 @@ describe('fileCacheKey', () => {
 
   it('is path, mtime, size and time zone joined by colons', () => {
     expect(fileCacheKey(base, 'Asia/Hong_Kong'))
-      .toBe('/r/-a/s.jsonl:1700000000000:42:Asia/Hong_Kong:v3');
+      .toBe('/r/-a/s.jsonl:1700000000000:42:Asia/Hong_Kong:v4');
   });
 
   it('no longer matches the pre-throughput key format, so stale entries miss once', () => {
@@ -37,15 +39,15 @@ describe('fileCacheKey', () => {
       .not.toBe('/r/-a/s.jsonl:1700000000000:42:Asia/Hong_Kong');
   });
 
-  it('is versioned v3, so entries parsed before the TTL split and speed miss once', () => {
-    expect(fileCacheKey(base, 'Asia/Hong_Kong')).toMatch(/:v3$/);
+  it('is versioned v4, so entries parsed before ParsedFile.session miss once', () => {
+    expect(fileCacheKey(base, 'Asia/Hong_Kong')).toMatch(/:v4$/);
     expect(fileCacheKey(base, 'Asia/Hong_Kong'))
-      .not.toBe('/r/-a/s.jsonl:1700000000000:42:Asia/Hong_Kong:v2');
+      .not.toBe('/r/-a/s.jsonl:1700000000000:42:Asia/Hong_Kong:v3');
   });
 
-  it('does not serve a stored v2 entry to a v3 lookup for the same file', () => {
+  it('does not serve a stored v3 entry to a v4 lookup for the same file', () => {
     const cache = new JsonFileAggregateCache(store);
-    cache.set('/r/-a/s.jsonl:1700000000000:42:Asia/Hong_Kong:v2', parsed);
+    cache.set('/r/-a/s.jsonl:1700000000000:42:Asia/Hong_Kong:v3', parsed);
     expect(cache.get(fileCacheKey(base, 'Asia/Hong_Kong'))).toBeUndefined();
   });
 
