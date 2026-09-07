@@ -411,106 +411,6 @@ export function Sessions(props: PageProps) {
         />
       </div>
 
-      <ChartCard
-        testId="chart-session-tokens"
-        title={`Heaviest ${Math.min(CHART_ROWS, sessions.length)} sessions`}
-        description="Main agent against its subagents, by tokens"
-        height={Math.max(240, chartData.length * 38)}
-      >
-        <BarChart
-          data={chartData}
-          layout="vertical"
-          margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
-        >
-          <CartesianGrid {...GRID_PROPS} vertical horizontal={false} />
-          <XAxis
-            type="number"
-            tick={AXIS_TICK}
-            axisLine={false}
-            tickLine={false}
-            tickFormatter={formatCompact}
-          />
-          <YAxis
-            type="category"
-            dataKey="name"
-            tick={AXIS_TICK}
-            axisLine={false}
-            tickLine={false}
-            width={150}
-            tickFormatter={truncateTick}
-          />
-          <Tooltip {...tokenTooltip} />
-          <Legend {...LEGEND_PROPS} />
-          <Bar
-            dataKey="main"
-            name="Main"
-            stackId="tokens"
-            fill={CHART_COLORS[0]}
-            minPointSize={1}
-            {...SEGMENT_GAP}
-          />
-          <Bar
-            dataKey="sidechain"
-            name="Subagent"
-            stackId="tokens"
-            fill={CHART_COLORS[1]}
-            minPointSize={1}
-            radius={[0, 4, 4, 0]}
-            {...SEGMENT_GAP}
-          />
-        </BarChart>
-      </ChartCard>
-
-      <ChartCard
-        testId="chart-tool-lanes"
-        title="Tool calls by lane"
-        description={`Top ${Math.min(CHART_TOOLS, laneData.length)} tools, main agent against its subagents`}
-        height={Math.max(240, laneData.length * 34)}
-      >
-        <BarChart
-          data={laneData}
-          layout="vertical"
-          margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
-        >
-          <CartesianGrid {...GRID_PROPS} vertical horizontal={false} />
-          <XAxis
-            type="number"
-            tick={AXIS_TICK}
-            axisLine={false}
-            tickLine={false}
-            allowDecimals={false}
-          />
-          <YAxis
-            type="category"
-            dataKey="tool"
-            tick={AXIS_TICK}
-            axisLine={false}
-            tickLine={false}
-            width={150}
-            tickFormatter={truncateTick}
-          />
-          <Tooltip {...tokenTooltip} />
-          <Legend {...LEGEND_PROPS} />
-          <Bar
-            dataKey="main"
-            name="Main"
-            stackId="calls"
-            fill={CHART_COLORS[0]}
-            minPointSize={1}
-            {...SEGMENT_GAP}
-          />
-          <Bar
-            dataKey="sidechain"
-            name="Subagent"
-            stackId="calls"
-            fill={CHART_COLORS[1]}
-            minPointSize={1}
-            radius={[0, 4, 4, 0]}
-            {...SEGMENT_GAP}
-          />
-        </BarChart>
-      </ChartCard>
-
       <Card>
         <CardHeader className="gap-1">
           <CardTitle className="text-sm font-medium">Every session in this selection</CardTitle>
@@ -663,6 +563,106 @@ export function Sessions(props: PageProps) {
           </Table>
         </CardContent>
       </Card>
+
+      <ChartCard
+        testId="chart-session-tokens"
+        title={`Heaviest ${Math.min(CHART_ROWS, sessions.length)} sessions`}
+        description="Main agent against its subagents, by tokens"
+        height={Math.max(240, chartData.length * 38)}
+      >
+        <BarChart
+          data={chartData}
+          layout="vertical"
+          margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
+        >
+          <CartesianGrid {...GRID_PROPS} vertical horizontal={false} />
+          <XAxis
+            type="number"
+            tick={AXIS_TICK}
+            axisLine={false}
+            tickLine={false}
+            tickFormatter={formatCompact}
+          />
+          <YAxis
+            type="category"
+            dataKey="name"
+            tick={AXIS_TICK}
+            axisLine={false}
+            tickLine={false}
+            width={150}
+            tickFormatter={truncateTick}
+          />
+          <Tooltip {...tokenTooltip} />
+          <Legend {...LEGEND_PROPS} />
+          <Bar
+            dataKey="main"
+            name="Main"
+            stackId="tokens"
+            fill={CHART_COLORS[0]}
+            minPointSize={1}
+            {...SEGMENT_GAP}
+          />
+          <Bar
+            dataKey="sidechain"
+            name="Subagent"
+            stackId="tokens"
+            fill={CHART_COLORS[1]}
+            minPointSize={1}
+            radius={[0, 4, 4, 0]}
+            {...SEGMENT_GAP}
+          />
+        </BarChart>
+      </ChartCard>
+
+      <ChartCard
+        testId="chart-tool-lanes"
+        title="Tool calls by lane"
+        description={`Top ${Math.min(CHART_TOOLS, laneData.length)} tools, main agent against its subagents`}
+        height={Math.max(240, laneData.length * 34)}
+      >
+        <BarChart
+          data={laneData}
+          layout="vertical"
+          margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
+        >
+          <CartesianGrid {...GRID_PROPS} vertical horizontal={false} />
+          <XAxis
+            type="number"
+            tick={AXIS_TICK}
+            axisLine={false}
+            tickLine={false}
+            allowDecimals={false}
+          />
+          <YAxis
+            type="category"
+            dataKey="tool"
+            tick={AXIS_TICK}
+            axisLine={false}
+            tickLine={false}
+            width={150}
+            tickFormatter={truncateTick}
+          />
+          <Tooltip {...tokenTooltip} />
+          <Legend {...LEGEND_PROPS} />
+          <Bar
+            dataKey="main"
+            name="Main"
+            stackId="calls"
+            fill={CHART_COLORS[0]}
+            minPointSize={1}
+            {...SEGMENT_GAP}
+          />
+          <Bar
+            dataKey="sidechain"
+            name="Subagent"
+            stackId="calls"
+            fill={CHART_COLORS[1]}
+            minPointSize={1}
+            radius={[0, 4, 4, 0]}
+            {...SEGMENT_GAP}
+          />
+        </BarChart>
+      </ChartCard>
 
       <SessionDetail session={selected} onClose={() => setOpenId(null)} />
     </section>

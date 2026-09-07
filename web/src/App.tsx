@@ -5,6 +5,7 @@ import type { SeriesPoint, StatsFilter } from './api/filterStats';
 import { filterStats as realFilterStats, usageSeries as realUsageSeries } from './api/filterStats';
 import { GRANULARITIES, GRANULARITY_LABELS, type Granularity } from './api/granularity';
 import { refreshStats as realRefreshStats } from './api/client';
+import { recentProjects, RECENT_PROJECT_LIMIT } from './api/recentProjects';
 import {
   defaultDateRange,
   matchPreset,
@@ -44,10 +45,10 @@ export interface AppProps {
 
 const PAGES = [
   { name: 'Overview', Component: Overview },
+  { name: 'Sessions', Component: Sessions },
   { name: 'Cost', Component: Cost },
   { name: 'Skills', Component: Skills },
   { name: 'Tools', Component: Tools },
-  { name: 'Sessions', Component: Sessions },
   { name: 'Efficiency', Component: Efficiency },
 ] as const;
 
@@ -83,6 +84,7 @@ export function App(props: AppProps) {
   // Opens on the last 7 days.
   const [range, setRange] = useState(() => defaultDateRange(now));
   const [projects, setProjects] = useState<string[]>([]);
+  const [showAllProjects, setShowAllProjects] = useState(false);
   const [granularity, setGranularity] = useState<Granularity>('day');
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
@@ -99,6 +101,15 @@ export function App(props: AppProps) {
   });
   const series = deps.usageSeries(filtered, granularity);
   const hasData = Object.keys(filtered.days).length > 0;
+
+  // Newest-first, so the collapsed card shows the projects actually being worked on.
+  const byRecency = recentProjects(stats.days);
+  // A selected project stays on screen even when it falls outside the head of the list,
+  // or collapsing the card would strip a filter the user can no longer see or undo.
+  const visibleProjects = showAllProjects
+    ? byRecency
+    : byRecency.filter((p, i) => i < RECENT_PROJECT_LIMIT || projects.includes(p));
+  const hiddenProjectCount = byRecency.length - visibleProjects.length;
 
   function toggleProject(project: string) {
     setProjects((prev) =>
@@ -249,7 +260,7 @@ export function App(props: AppProps) {
               </div>
             </div>
 
-            {stats.projects.length > 0 && (
+            {byRecency.length > 0 && (
               <fieldset className="space-y-2">
                 <legend className="text-xs text-muted-foreground">
                   Projects{' '}
@@ -258,7 +269,7 @@ export function App(props: AppProps) {
                   </span>
                 </legend>
                 <div className="flex flex-wrap gap-2">
-                  {stats.projects.map((project) => {
+                  {visibleProjects.map((project) => {
                     const id = `project-${project}`;
                     const selected = projects.includes(project);
                     return (
@@ -287,6 +298,15 @@ export function App(props: AppProps) {
                     );
                   })}
                 </div>
+                {(hiddenProjectCount > 0 || showAllProjects) && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllProjects((prev) => !prev)}
+                    className="cursor-pointer text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                  >
+                    {showAllProjects ? 'Show fewer' : `Show all (${hiddenProjectCount} more)`}
+                  </button>
+                )}
               </fieldset>
             )}
 

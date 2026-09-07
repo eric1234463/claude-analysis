@@ -30,6 +30,19 @@ function fakes() {
   return { deps, seen, filtered, series };
 }
 
+/** Five projects on distinct days, so the filter card has something to collapse. */
+const manyProjects: AggregateStats = {
+  ...stats,
+  projects: ['p-newest', 'p-older', 'p-oldest', 'p-second', 'p-third'],
+  days: {
+    '2026-07-05': { 'p-oldest': stats.totals },
+    '2026-07-06': { 'p-older': stats.totals },
+    '2026-07-07': { 'p-third': stats.totals },
+    '2026-07-08': { 'p-second': stats.totals },
+    '2026-07-09': { 'p-newest': stats.totals },
+  },
+};
+
 describe('App navigation', () => {
   it('mounts Overview by default', () => {
     const { deps } = fakes();
@@ -46,16 +59,16 @@ describe('App navigation', () => {
     }
   });
 
-  it('lists the pages in tab order, with Cost beside Overview', () => {
+  it('lists the pages in tab order, with Sessions beside Overview', () => {
     const { deps } = fakes();
     render(<App stats={stats} deps={deps} />);
     const nav = screen.getByRole('navigation', { name: 'Dashboard sections' });
     expect(within(nav).getAllByRole('button').map((tab) => tab.textContent)).toStrictEqual([
       'Overview',
+      'Sessions',
       'Cost',
       'Skills',
       'Tools',
-      'Sessions',
       'Efficiency',
     ]);
   });
@@ -169,6 +182,33 @@ describe('App filtering delegates to the injected layer', () => {
     render(<App stats={stats} deps={deps} />);
     expect(screen.getByLabelText('-fixture-project')).toBeTruthy();
     expect(screen.getByLabelText('-fixture-project-two')).toBeTruthy();
+  });
+
+  it('collapses to the three most recently used projects and expands on demand', () => {
+    const { deps } = fakes();
+    render(<App stats={manyProjects} deps={deps} />);
+    expect(screen.getByLabelText('p-newest')).toBeTruthy();
+    expect(screen.getByLabelText('p-second')).toBeTruthy();
+    expect(screen.getByLabelText('p-third')).toBeTruthy();
+    expect(screen.queryByLabelText('p-older')).toBeNull();
+    expect(screen.queryByLabelText('p-oldest')).toBeNull();
+
+    fireEvent.click(screen.getByText('Show all (2 more)'));
+    expect(screen.getByLabelText('p-oldest')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('Show fewer'));
+    expect(screen.queryByLabelText('p-oldest')).toBeNull();
+  });
+
+  it('keeps a selected project visible after the list collapses again', () => {
+    const { deps } = fakes();
+    render(<App stats={manyProjects} deps={deps} />);
+    fireEvent.click(screen.getByText('Show all (2 more)'));
+    fireEvent.click(screen.getByLabelText('p-oldest'));
+    fireEvent.click(screen.getByText('Show fewer'));
+    // Still on screen and still checked, or the filter would be stuck on with no
+    // way to switch it off.
+    expect(screen.getByLabelText('p-oldest').getAttribute('data-state')).toBe('checked');
   });
 });
 

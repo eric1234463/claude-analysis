@@ -165,6 +165,14 @@ and shared by the range initialiser and the derivation, so don't add a `preset` 
 it would desync from the empty state's own `setRange` call — and don't unwrap the `useState` around
 `now`, which would drift the select to Custom the moment the clock crossed midnight.
 
+The project chips show only the **3 most recently used** projects (`recentProjects` in
+`web/src/api/recentProjects.ts`, ordered by each project's last active day) behind a `Show all`
+expander — 71 projects made the full list unreadable. Recency is derived from the *unfiltered*
+`stats.days`, so narrowing the date range never reshuffles the chips mid-click, and a *selected*
+project stays rendered even when it falls outside the head of the list, or collapsing the card would
+leave a filter on with no control to switch it off. An unselected project is still counted in every
+chart (no selection means all) — the expander is the only way to isolate one.
+
 Time-bucketed charts group at a granularity the user picks in the filter card — daily (default),
 weekly or monthly. `usageSeries(stats, granularity)` does the grouping once, keying each point by
 `bucket` (a day, an ISO-week Monday, or `YYYY-MM`) via `bucketKey` in `web/src/api/granularity.ts`;
@@ -174,7 +182,10 @@ parsed at UTC midnight — still never from a timestamp, and never in the ambien
 (cache hit, tool error) divide after the bucket's counts are merged, so a week is weighted by volume
 rather than being the mean of its days' ratios.
 
-The Sessions page is the one view keyed on `stats.sessions` rather than on `series`: it re-derives
+The Sessions page sits **second in the tab order** (right after Overview) and leads with its
+`Every session in this selection` table, ahead of both charts — the row list is the point of the
+page, the charts are a summary of it. It is the one view keyed on `stats.sessions` rather than on
+`series`: it re-derives
 every total from the filtered session rows and must never read a day cell, or a midnight-crossing
 session would be counted twice. Its `granularity` prop goes unused by design — a session is not
 time-bucketed. Tool calls and tokens each get a `Main | Subagent | All` column band, and a row
